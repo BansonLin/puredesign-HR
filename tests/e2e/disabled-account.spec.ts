@@ -60,8 +60,11 @@ test.describe("停用帳號登入", () => {
     await page.waitForURL(
       (url) => url.pathname === LOGIN_PATH && url.searchParams.get("reason") === "disabled",
     );
-    // `components/ui/alert.tsx` renders `role="alert"`; /login shows at most one.
-    await expect(page.getByRole("alert")).toContainText(DISABLED_MESSAGE);
+    // Scoped to the shadcn alert (`data-slot="alert"`, components/ui/alert.tsx)
+    // rather than `getByRole("alert")`: Next.js also renders a permanently
+    // empty `#__next-route-announcer__` with role="alert", so the role alone
+    // matches two elements and fails Playwright's strict mode.
+    await expect(page.locator('[data-slot="alert"]')).toContainText(DISABLED_MESSAGE);
     await expect(page.getByRole("button", { name: "登入" })).toBeVisible();
 
     // The action really signed the session out (PLAN T07 「signOut 並導…」).
