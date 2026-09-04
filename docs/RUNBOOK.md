@@ -98,7 +98,7 @@ pnpm db:seed --anchor <上一個工作日>
 - 例：驗收日 2026-09-18（週五）→ `pnpm db:seed --anchor 2026-09-17`。四位新人的日誌會落在 9/16、9/17；預警在 9/17 17:03／17:06 產生；採購主管的回應在 9/18 09:10；洪湘庭的 R2 自 9/18 17:06 起顯示逾時未回。
 - 先確認 `.env.local` 指向 staging（`SEED_ALLOWED_PROJECT_REF`＝staging ref），完成後看到 `seed  alerts 與預期一致：…` 與 `seed  完成` 即可。
 - 想同時確認可重跑：`pnpm db:seed --anchor <日期> --verify`（只在 staging 尚無其他 seed 日期的資料時筆數才會等於預期，見下一點）。
-- 注意：seed 不刪列。若之前已用別的 anchor 跑過，舊日期的日誌與預警會留在資料庫（儀表板會多出那幾天），`--verify` 的筆數比對也會因此失敗。需要乾淨的示範資料時，先把 staging 資料庫重置（supabase CLI 對 staging 專案 `db reset`；**絕不對 production 執行**），再 `supabase db push` → `pnpm db:seed --anchor <日期>`。
+- 注意：seed 不刪列。若之前已用別的 anchor 跑過，舊日期的日誌與預警會留在資料庫（儀表板會多出那幾天），`--verify` 的筆數比對也會因此失敗。需要乾淨的示範資料時，先把 staging 資料庫重置（supabase CLI 對 staging 專案 `db reset`；**絕不對 production 執行**），再 `pnpm db:push`（機器要先 link 過，見 8.3）→ `pnpm db:seed --anchor <日期>`。
 - 不得對 production 執行完整模式或 `--anchor`（seed 會拒絕 `NODE_ENV=production`，但 `.env.local` 指錯專案仍靠 `SEED_ALLOWED_PROJECT_REF` 擋）。
 - 示範帳號的密碼在重跑時不會被動到。若忘了 `SEED_PASSWORD` 當初設什麼、要把所有示範帳號重設成新密碼，加 `--reset-passwords`（見 6.3）。
 
@@ -136,7 +136,7 @@ Phase 1 **沒有**「忘記密碼」的自助流程（沒有 email 可寄，帳�
 
 `/hr` 只有 hr 與 admin 進得去；newcomer、manager、ceo 開這個網址會看到 403。頁面由上而下是一顆「複製今日一行摘要」按鈕加七個區塊，以下逐一說明「數字從哪裡來」。
 
-所有時間與日期都用台北時區。母體一律是**在職新人**：`status='active'`、有到職日、且今天已經到職的人；`status='sample'` 的測試帳號（`e2e_fresh`）與 `status='left'` 的離職者都不算（唯一例外是 4.5 的誤報率與主管回應率，見該節）。
+所有時間與日期都用台北時區。母體一律是**在職新人**：`status='active'`、有到職日、且今天已經到職的人；`status='sample'` 的測試帳號（`e2e_fresh`）與 `status='left'` 的離職者都不算。**三指標（4.5）也不例外**：Phase 1 的 `/hr` 只載入在職新人的預警，所以離職者的歷史預警不會進到任何一個區塊，包括三指標；這與 PLAN A02 的意圖有出入，見 9.5。
 
 ### 4.0 複製今日一行摘要
 
@@ -209,7 +209,9 @@ Phase 1 **沒有**「忘記密碼」的自助流程（沒有 email 可寄，帳�
 
 ### 4.5 三指標
 
-分子分母的母體都是「`status ∈ {open, responded}` 且所屬日誌未被軟刪」的預警，**不含 `closed`**，也不含測試帳號（`sample`）的預警。離職者留下的歷史預警仍然算（那是主管當時的行為事實）。
+分子分母的母體都是「`status ∈ {open, responded}` 且所屬日誌未被軟刪」的預警，**不含 `closed`**，也不含測試帳號（`sample`）的預警。
+
+> **離職者的預警不算。** Phase 1 的 `/hr` 只載入**在職**新人的預警，因此帳號一旦改成 `status='left'`，他的歷史預警會同時退出誤報率、主管回應率與 24h 內回應率——停用某人的當下看到三指標跳動是**正常的**，不是系統壞掉。PLAN A02 要求的「以 alerts 事實全量計、離職者歷史預警仍計入」尚未在頁面層實作（純函式層有保留），這條差異記在 9.5。
 
 | 指標 | 分子 | 分母 |
 |---|---|---|
@@ -232,7 +234,7 @@ Phase 1 **沒有**「忘記密碼」的自助流程（沒有 email 可寄，帳�
 - **階段**由 D30／D60／D90 節點推導；第 91 天起顯示「已滿 90 天」。
 - **下一節點**＝還沒完成、到期日最小的那一筆；已過期會標「逾期 N 天」。
 - **累計預警／回應率**口徑同 4.5（全期）。
-- **缺交率**＝1 −（累計日誌數 ÷ 到職至今的工作日數）。工作日依 `settings.workweek`（預設週一～週五）。今天若還沒到 18:00，今天不計入分母。格子下方會註明「缺 N / M 個工作日（計至 yyyy/MM/dd）」。
+- **缺交率**＝1 −（累計日誌數 ÷ 到職至今的工作日數）。工作日依 `settings.workweek`（預設週一～週五）。今天若還沒到 18:00，今天不計入分母。這一格**只顯示百分比**；要看「缺了幾天／共幾個工作日」請點名字進個別新人頁（4.8）。
 
 ### 4.7 節點到期
 
@@ -242,7 +244,9 @@ Phase 1 **沒有**「忘記密碼」的自助流程（沒有 email 可寄，帳�
 
 從各區塊點名字進來，可看 90 天總覽、完整時間軸，以及「匯出 CSV」（`/api/export/newcomer/[id]`）。HR 在這頁**只能看**，要回應預警請走 `/manager/newcomer/[id]`（見 7.3）。
 
-CSV 注意事項見 9.3（防公式注入的前置單引號）。
+這頁的 **90 天總覽**會在缺交率下方多一行註記「缺 N / M 個工作日（計至 yyyy/MM/dd）」，讓你知道百分比是用幾個工作日算出來的；4.6 的新人總覽表格只顯示百分比，沒有這行。
+
+CSV 注意事項見 9.4（防公式注入的前置單引號）。
 
 ## 5. Phase 1 建帳號的兩條路
 
@@ -268,8 +272,10 @@ Phase 1 沒有 `/admin/users`，所以新人／主管帳號只有兩種建法。
    },
    ```
 
-2. 跑 `pnpm db:seed`。seed 會**一次做完三件事**：以 `{username}@pure.internal` 建 Supabase Auth 使用者（已勾 email confirm）、寫入 `profiles` 一列、依到職日建 D30／D60／D90 三筆 `milestones`。
-3. 密碼是 `SEED_PASSWORD`。既有帳號重跑不會被改密碼。
+2. **同步更新筆數期望值**：`supabase/seed/fixtures/expected.ts` 的 `EXPECTED_ROW_COUNTS.full` 是硬編碼的，加一位新人要把 `profiles` ＋1、`milestones` ＋3（加主管則只有 `profiles` ＋1）。不改的話，`pnpm db:seed --verify` 會因筆數不符 exit 1，`tests/unit/fixtures.test.ts` 也會紅。
+3. 跑 `pnpm db:seed`。seed 會**一次做完三件事**：以 `{username}@pure.internal` 建 Supabase Auth 使用者（已勾 email confirm）、寫入 `profiles` 一列、依到職日建 D30／D60／D90 三筆 `milestones`。
+4. 跑 `pnpm test` 確認全綠，再送 PR（§13 完成定義要求 lint／typecheck／unit／e2e 全綠）。
+5. 密碼是 `SEED_PASSWORD`。既有帳號重跑不會被改密碼。
 
 > 這條路會動到 repo 的程式碼，要走分支 → PR → 人審（CLAUDE.md §0）。真正上線的名單維護請等 Phase 2 的 `/admin/users`。
 
@@ -377,10 +383,15 @@ update public.profiles
 
 - 該帳號登入會被登出並導回登入頁，顯示「**帳號已停用，請聯絡 HR。**」；已登入中的 session 下一次開頁面也會被踢出。
 - 這個人不再出現在今日交件、缺交名單、主管卡片、HR 介入清單、新人總覽、節點到期與一行摘要裡。
-- **歷史資料完全保留**：他過去的日誌、預警與主管回應仍可在 `/hr/newcomer/[id]` 讀取與匯出，誤報率與主管回應率仍然計入這些歷史預警（那是主管當時的行為）；只有缺交率不再計算。
+- **資料庫裡的歷史資料完全保留**：他過去的日誌、預警與主管回應仍可在 `/hr/newcomer/[id]` 用直達網址讀取與匯出（人已不在任何名單裡，要自己留網址或用 SQL 查 id）。
+- **但三指標會跳動**：Phase 1 的 `/hr` 只載入在職新人的預警，所以停用的當下，這個人的歷史預警會同時退出誤報率、主管回應率與 24h 內回應率（不只是缺交率）。這是目前的行為，不是錯誤；與 PLAN A02 的差異見 9.5。
 - 要復職就把 `status` 改回 `active`。若到職日有變，記得同時更新 `start_date` 並跑 `pnpm db:seed --milestones-only`（只補缺的節點；已存在的到期日不會被改，需要改請直接改 `milestones.due_date`）。
 
-> Phase 1 沒有「刪除帳號」的操作，也請不要在 Supabase 後台刪 auth 使用者——`profiles` 是 `on delete cascade`，刪掉會連帶把這個人的紀錄一起帶走。停用一律用 `status='left'`。
+> Phase 1 沒有「刪除帳號」的操作，也請**不要**在 Supabase 後台刪 auth 使用者。刪下去只會有兩種結果，兩種都不是你要的：
+> - 這個人**還沒有任何日誌或預警**：`profiles` 與 `milestones` 對他是 `on delete cascade`，會被一起刪掉，人與節點就消失了。
+> - 這個人**已經有日誌或預警**：`submissions.user_id` 與 `alerts.user_id` 對 `profiles` 是 `on delete restrict`，資料庫會直接**拒絕刪除**並回外鍵錯誤（`submissions_user_id_fkey`），畫面上看起來像是後台壞掉。
+>
+> 停用一律用 `status='left'`。
 
 ## 7. 主管每天／每週的路徑
 
@@ -421,6 +432,8 @@ HR 與 admin 也能進 `/manager`、`/manager/newcomer/[id]` 與 `/manager/weekl
 | **Session 時長** | Authentication → Sessions | 不設上限（或 ≥ 30 天） | CLAUDE.md §3 要求 session 保持 30 天；應用端的 cookie `maxAge` 已設 30 天，Supabase 端若設更短會提前失效 |
 | **RLS** | 由 migrations 設定 | 所有表對 `anon`／`authenticated` deny-all | 資料只能經伺服器端 service role 讀寫；請勿在後台為任何表加開放的 policy |
 
+> **這張表只適用 staging 與 production 這兩個 hosted 專案。** repo 裡的 `supabase/config.toml`（本機 supabase CLI 堆疊與 CI 的 db／e2e job 用的那份）刻意是 `enable_signup = true`、`minimum_password_length = 6`，那是暫時性的測試環境設定，讓測試能自行建帳號；**兩邊不一致是預期的，不要為了對齊而去改任何一邊**。
+
 > **30 天 session 目前只驗證了「刷新機制有效」，沒有真的等 30 天。** 驗證法：暫時把 JWT expiry 調成 5 分鐘 → 登入後閒置 10 分鐘再操作，仍在線 → 調回。真正的 30 天留在上線後檢討時再確認。
 
 **免費專案閒置暫停**：Supabase 免費方案的專案連續 7 天沒有任何流量會被自動暫停（paused），此時網站會出現連線錯誤。喚醒方式：登入 Supabase 後台 → 選到該專案 → 首頁會顯示 **Restore / Resume project** 按鈕 → 按下去等一到兩分鐘，資料不會遺失。要避免暫停，就在驗收前一天先開一次後台，或照第 2 節跑一次 seed。**production 專案不要放著不管超過一週。**
@@ -444,11 +457,15 @@ Preview（staging 分支）與 Production（main）各設一組。**改完環境
 ### 8.3 上線／建立新環境的順序
 
 ```
-supabase db push          # 把 migrations 推到目標專案（可從空庫一路跑到最新）
-pnpm db:seed --base       # departments、settings、三張範本 v1、banson/hr/ceo
+pnpm exec supabase login                      # 1. 一台機器做一次
+pnpm exec supabase link --project-ref <ref>   # 2. 綁定目標專案，會問資料庫密碼
+pnpm db:push                                  # 3. 把 migrations 推上去（可從空庫一路跑到最新）
+pnpm db:seed --base                           # 4. departments、settings、三張範本 v1、banson/hr/ceo
 ```
 
-production **只跑這兩步**，不要跑完整模式（會灌入示範新人與示範日誌；seed 在 `NODE_ENV=production` 也會拒絕）。staging 接著再跑 `pnpm db:seed` 或 `pnpm db:seed --anchor <日期>`（第 2 節）。
+第 1、2 步不能省：`pnpm db:push` 就是 `supabase db push`，沒 link 過的機器不知道要推去哪個專案，會直接失敗。`<ref>` 是 Supabase 專案網址裡的那串 ref（後台 Project Settings → General）。不想 link 也可以改用 `pnpm exec supabase db push --db-url "<connection string>"` 一次性指定（連線字串須 percent-encode）。若是**本機 CLI 堆疊**（Docker），則不用 push，直接 `pnpm db:reset` 重建。
+
+production **做到第 4 步就停**，不要跑完整模式（會灌入示範新人與示範日誌；seed 在 `NODE_ENV=production` 也會拒絕）。staging 接著再跑 `pnpm db:seed` 或 `pnpm db:seed --anchor <日期>`（第 2 節）。
 
 ## 9. 已知限制（Phase 1）
 
@@ -494,6 +511,7 @@ update public.settings
 
 ### 9.5 其他
 
+- **停用帳號會讓三指標跳動（與 PLAN A02 有出入，待決）。** PLAN 假設 A02 要求「誤報率與主管回應率以 alerts 事實全量計，離職者的歷史預警仍計入」，`lib/metrics/rates.ts` 的純函式也的確不看 `status`；但 `/hr` 頁面把預警母體限縮成 `activeNewcomers()` 的 id，所以離職者的預警根本沒被載入，指標實際上是「只算在職者」。兩種收法各有道理（改頁面查詢母體／正式修訂 A02），Phase 2 一併裁決；在那之前，看到停用某人後指標變動屬正常。
 - 沒有多語系、沒有深色模式（CLAUDE.md §3）。
 - 缺交、逾時這些時間型狀態都是「打開頁面當下才算」，沒有排程，所以不會有任何主動通知；請養成每天固定時間看 `/hr` 的習慣。
 - `e2e_fresh` 這個帳號是給自動化測試用的，看得到但不進任何統計；請不要拿它當真人帳號。

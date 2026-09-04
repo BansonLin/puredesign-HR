@@ -7,12 +7,16 @@
 前置：Node 22（見 `.nvmrc`）、pnpm 10、一個可用的 Supabase 專案（staging，或用 supabase CLI 本機堆疊——後者需要 Docker）。
 
 ```bash
-pnpm install --frozen-lockfile          # 1. 安裝依賴
-cp .env.example .env.local              # 2. 填入真值（見下表），.env.local 不進 git
-pnpm db:push                            # 3. 把 supabase/migrations 推到目標專案
-pnpm db:seed                            # 4. 寫入示範資料（依 CLAUDE.md §11）
-pnpm dev                                # 5. http://localhost:3000
+pnpm install --frozen-lockfile              # 1. 安裝依賴
+cp .env.example .env.local                  # 2. 填入真值（見下表），.env.local 不進 git
+pnpm exec supabase login                    # 3. 一台機器做一次
+pnpm exec supabase link --project-ref <ref> # 4. 綁定目標專案（會問資料庫密碼）
+pnpm db:push                                # 5. 把 supabase/migrations 推到該專案
+pnpm db:seed                                # 6. 寫入示範資料（依 CLAUDE.md §11）
+pnpm dev                                    # 7. http://localhost:3000
 ```
+
+第 3、4 步不能省：`pnpm db:push` 就是 `supabase db push`，沒 link 過的機器不知道要推去哪裡，會失敗。`<ref>` 見 Supabase 後台 Project Settings → General。替代法是 `pnpm exec supabase db push --db-url "<connection string>"`（連線字串須 percent-encode）。若改用 **supabase CLI 本機堆疊**（需要 Docker），第 3–5 步換成 `pnpm exec supabase start` ＋ `pnpm db:reset`。
 
 用 seed 帳號登入（帳號欄只填 username，不含 email）：`hr`／`darren`／`mgr_construction`／`ceo`，密碼一律是你在 `.env.local` 設的 `SEED_PASSWORD`。完整帳號清單見 `docs/RUNBOOK.md` 1.5。
 

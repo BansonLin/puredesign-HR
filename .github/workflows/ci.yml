@@ -183,8 +183,11 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - name: Playwright smoke (flow / authz / first-login / rls)
         run: pnpm exec playwright test
-      - name: Upload Playwright traces
-        if: failure()
+      # Always uploaded: on failure this carries the traces, on success it
+      # carries the 375px screenshots mobile.spec.ts takes of all nine pages,
+      # which are what CLAUDE.md §13 asks the PR description to show.
+      - name: Upload Playwright traces and 375px screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-traces
