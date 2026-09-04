@@ -1,0 +1,201 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# CI never talks to staging (PLAN A01): the `db` and `e2e` jobs each start the
+# supabase CLI local stack on their own runner (jobs do not share runners, so
+# the steps are duplicated on purpose, no composite action). SEED_PASSWORD
+# (PLAN A03) is read from the repository secret when it exists; the e2e job
+# generates a random per-run password otherwise, because the stack it seeds is
+# an ephemeral container destroyed when the job ends. The three Supabase
+# variables are taken
+# from `supabase status -o env` inside the e2e job; they are deliberately NOT
+# defined here, because a workflow-level `env` would take precedence over the
+# values written to $GITHUB_ENV. The supabase CLI version handed to
+# supabase/setup-cli is read from the installed `supabase` devDependency after
+# `pnpm install`, so it can never drift from package.json / pnpm-lock.yaml.
+env:
+  APP_TIMEZONE: Asia/Taipei
+  APP_BASE_URL: http://localhost:3000
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [UTC, Asia/Taipei, America/Los_Angeles]
+    env:
+      TZ: ${{ matrix.tz }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  db:
+    # CLAUDE.md §13: migrations run from an empty database to the latest one;
+    # PLAN 4.5: nine tables, RLS enabled on all of them, zero policies.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Read supabase CLI version from the installed devDependency
+        run: |
+          echo "SUPABASE_CLI_VERSION=$(node -p "require('./node_modules/supabase/package.json').version")" >> "$GITHUB_ENV"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: Start local stack
+        run: supabase start
+      - name: Reset database (empty -> all migrations)
+        run: supabase db reset
+      - name: Verify schema (nine tables, RLS on, no policies)
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_URL=$(supabase status -o env | sed -nE 's/^DB_URL="(.*)"$/\1/p')
+          test -n "$DB_URL"
+          EXPECTED_TABLES='alerts,audit_log,departments,form_templates,form_versions,milestones,profiles,settings,submissions'
+
+          TABLES=$(psql "$DB_URL" -X -tA -c \
+            "select coalesce(string_agg(tablename, ',' order by tablename), '') from pg_tables where schemaname = 'public'")
+          echo "pg_tables(public): $TABLES"
+          test "$TABLES" = "$EXPECTED_TABLES"
+
+          RLS_ON=$(psql "$DB_URL" -X -tA -c \
+            "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity")
+          echo "pg_class.relrowsecurity = true (public): $RLS_ON"
+          test "$RLS_ON" = "9"
+
+          POLICIES=$(psql "$DB_URL" -X -tA -c \
+            "select count(*) from pg_policies where schemaname = 'public'")
+          echo "pg_policies(public): $POLICIES"
+          test "$POLICIES" = "0"
+      - name: Stop local stack
+        if: always()
+        run: supabase stop --no-backup
+
+  e2e:
+    # Runs on its own runner against its own local stack (same steps as `db`).
+    # The full T27 chain: start → reset → seed → Playwright (global-setup.ts
+    # re-seeds per run; flow / authz / first-login / rls).
+    needs: [lint, typecheck, unit, db]
+    runs-on: ubuntu-latest
+    env:
+      # Local stack project ref (PLAN T04 seed guard).
+      SEED_ALLOWED_PROJECT_REF: local
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The seed refuses to run without SEED_PASSWORD (PLAN A03). The stack this
+      # job seeds is an ephemeral local container on 127.0.0.1 that `supabase
+      # stop --no-backup` destroys when the job ends, so when the repository has
+      # no SEED_PASSWORD secret a random per-run password is generated here.
+      # Nothing is written to the repository either way (§4: no secret in git).
+      - name: Seed password for the ephemeral local stack
+        shell: bash
+        env:
+          SEED_PASSWORD_SECRET: ${{ secrets.SEED_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SEED_PASSWORD_SECRET}" ]; then
+            echo "::add-mask::${SEED_PASSWORD_SECRET}"
+            echo "SEED_PASSWORD=${SEED_PASSWORD_SECRET}" >> "$GITHUB_ENV"
+            echo "Using the repository SEED_PASSWORD secret."
+          else
+            generated="ci$(openssl rand -hex 16)"
+            echo "::add-mask::${generated}"
+            echo "SEED_PASSWORD=${generated}" >> "$GITHUB_ENV"
+            echo "No SEED_PASSWORD secret set; generated a random one for this run only."
+          fi
+      - name: Read supabase CLI version from the installed devDependency
+        run: |
+          echo "SUPABASE_CLI_VERSION=$(node -p "require('./node_modules/supabase/package.json').version")" >> "$GITHUB_ENV"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: Start local stack
+        run: supabase start
+      - name: Reset database (empty -> all migrations)
+        run: supabase db reset
+      - name: Export Supabase variables from the local stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase status -o env \
+            --override-name api.url=NEXT_PUBLIC_SUPABASE_URL \
+            --override-name auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY \
+            --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY \
+            | grep -E '^(NEXT_PUBLIC_SUPABASE_URL|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_SERVICE_ROLE_KEY)=' \
+            | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
+            >> "$GITHUB_ENV"
+      # §11 fixture. `--verify` seeds twice and compares the row counts with
+      # each other and with EXPECTED_ROW_COUNTS, so a non-idempotent seed
+      # fails here rather than halfway through a spec (§13).
+      - name: Seed (§11 fixture)
+        run: pnpm db:seed --verify
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Playwright e2e (every spec in tests/e2e)
+        run: pnpm exec playwright test
+      # Always uploaded: on failure this carries the traces, on success it
+      # carries the 375px screenshots mobile.spec.ts takes of all nine pages,
+      # which are what CLAUDE.md §13 asks the PR description to show.
+      - name: Upload Playwright traces and 375px screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Stop local stack
+        if: always()
+        run: supabase stop --no-backup
