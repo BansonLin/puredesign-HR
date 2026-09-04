@@ -13,10 +13,14 @@
  *   --milestones-only  add missing D30/D60/D90 rows for every newcomer with a start_date (PLAN 4.7)
  *   --reset-passwords  reset every seed account's password to SEED_PASSWORD (default: leave existing)
  *
- * Guards: SEED_PASSWORD must be set; the project ref of NEXT_PUBLIC_SUPABASE_URL
- * must equal SEED_ALLOWED_PROJECT_REF (`local` for the supabase CLI stack).
+ * Guards: SEED_PASSWORD must be set in every mode (--milestones-only included,
+ * PLAN T04); the project ref of NEXT_PUBLIC_SUPABASE_URL must equal
+ * SEED_ALLOWED_PROJECT_REF (`local` for the supabase CLI stack).
  *
  * Idempotency (PLAN 4.9.2): fixed UUIDs + upsert; nothing is ever deleted.
+ * A departments.name / profiles.username / form_templates.key that already
+ * exists under a different id (created by hand) aborts the run instead of
+ * being overwritten.
  * form_templates / form_versions are inserted only when missing so that a
  * later v2 published from /admin/forms is never reverted (see DECISIONS).
  * Submissions and alerts are written by T16 (runRules + applyAlertChanges).
@@ -116,7 +120,7 @@ function requireSeedPassword(): string {
 }
 
 /** `https://<ref>.supabase.co` → `<ref>`; localhost / 127.0.0.1 → `local`; otherwise the hostname. */
-export function projectRefOf(supabaseUrl: string): string {
+function projectRefOf(supabaseUrl: string): string {
   const { hostname } = new URL(supabaseUrl);
   if (
     hostname === "localhost" ||
@@ -190,6 +194,23 @@ async function seedSettings(client: AdminClient): Promise<void> {
 }
 
 async function seedDepartments(client: AdminClient): Promise<Map<string, string>> {
+  // PLAN 4.9.2: a hand-made row that collides on the natural key aborts the run.
+  const { data: byName } = await client
+    .from("departments")
+    .select("id, name")
+    .in(
+      "name",
+      DEPARTMENTS.map((d) => d.name),
+    )
+    .throwOnError();
+  for (const row of byName) {
+    const seed = DEPARTMENTS.find((d) => d.name === row.name);
+    if (seed && row.id !== seed.id) {
+      abort(
+        `departments.name=${row.name} 已存在但 id 為 ${row.id}（非 seed 建立）。請人工處理後重跑`,
+      );
+    }
+  }
   const rows: TablesInsert<"departments">[] = DEPARTMENTS.map((d) => ({ ...d }));
   await client.from("departments").upsert(rows, { onConflict: "id" }).throwOnError();
   log(`departments：upsert ${rows.length} 筆`);
@@ -258,6 +279,24 @@ async function seedProfiles(
   const idByUsername = new Map<string, string>(
     [...BASE_PROFILES, ...FIXTURE_PROFILES].map((p) => [p.username, p.id]),
   );
+  // PLAN 4.9.2: a hand-made row that collides on the natural key aborts the run
+  // (checked before any auth user is created).
+  const { data: byUsername } = await client
+    .from("profiles")
+    .select("id, username")
+    .in(
+      "username",
+      profiles.map((p) => p.username),
+    )
+    .throwOnError();
+  for (const row of byUsername) {
+    const seed = profiles.find((p) => p.username === row.username);
+    if (seed && row.id !== seed.id) {
+      abort(
+        `profiles.username=${row.username} 已存在但 id 為 ${row.id}（非 seed 建立）。請人工處理後重跑`,
+      );
+    }
+  }
   const tally = { created: 0, kept: 0, "password-reset": 0 };
   for (const profile of profiles) {
     tally[await ensureAuthUser(client, profile, ctx.password, ctx.resetPasswords)] += 1;
@@ -495,7 +534,7 @@ async function runSeed(client: AdminClient, opts: Options, password: string, shi
 
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
-  const password = opts.mode === "milestones-only" ? "" : requireSeedPassword();
+  const password = requireSeedPassword();
   const ref = requireAllowedProject();
   if (opts.mode === "full" && process.env.NODE_ENV === "production") {
     abort("完整模式（含 fixture）拒絕在 NODE_ENV=production 執行；production 只准 --base");

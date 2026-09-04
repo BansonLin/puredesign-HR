@@ -65,7 +65,7 @@ function isScannable(name: string): boolean {
   // Dotenv files: only the committed template is scanned. `.env.local` (and
   // any other `.env*`) is the developer's local secret store — CLAUDE.md §3
   // ("本機開發連 staging"), `.env.example` line 1 and `pnpm db:seed`
-  // (`--env-file=.env.local`) all require it to hold the real service role
+  // (`--env-file-if-exists=.env.local`) all require it to hold the real service role
   // key — and it is git-ignored (`.env`, `.env.*`), so it is out of scope.
   if (name.startsWith(".env")) return name === ".env.example";
   return [...SCANNED_EXTENSIONS].some((ext) => name.endsWith(ext));

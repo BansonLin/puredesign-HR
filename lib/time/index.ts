@@ -24,11 +24,13 @@ import {
 export type DateString = string;
 
 /**
- * A point in time: `Date`, or an ISO 8601 date-time string `Date` can parse
- * (e.g. `2026-09-04T10:00:00Z`, `2026-09-04T18:00:00+08:00`). A date-only
- * `YYYY-MM-DD` string is NOT an instant (it is a `DateString`) and is
- * rejected with `RangeError`, because `new Date('YYYY-MM-DD')` would silently
- * mean UTC midnight rather than a moment in the app time zone.
+ * A point in time: `Date`, or an ISO 8601 date-time string with an explicit
+ * offset — ending in `Z` or `±HH:mm` (e.g. `2026-09-04T10:00:00Z`,
+ * `2026-09-04T18:00:00+08:00`, PostgREST's `…+00:00`). Anything else is
+ * rejected with `RangeError`: a date-only `YYYY-MM-DD` string is a
+ * `DateString`, not an instant (`new Date('YYYY-MM-DD')` would silently mean
+ * UTC midnight), and a date-time without an offset
+ * (`2026-09-04T18:00:00`) would be read in the process time zone.
  */
 export type Instant = Date | string;
 
@@ -39,6 +41,9 @@ export const DEFAULT_TIMEZONE = "Asia/Taipei";
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const TIME_RE = /^(\d{2}):(\d{2})$/;
+/** ISO 8601 date-time with a mandatory `Z` or `±HH:mm` offset. */
+const INSTANT_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 const DATE_FORMAT = "yyyy-MM-dd";
 
 /** Time zone name from `APP_TIMEZONE`, default `Asia/Taipei`. */
@@ -48,10 +53,17 @@ export function appTimeZone(): string {
 }
 
 function toInstant(value: Instant): Date {
-  if (typeof value === "string" && DATE_RE.test(value)) {
-    throw new RangeError(
-      `Date-only string is not an instant (pass a DateString function or an ISO date-time): ${value}`,
-    );
+  if (typeof value === "string") {
+    if (DATE_RE.test(value)) {
+      throw new RangeError(
+        `Date-only string is not an instant (pass a DateString function or an ISO date-time): ${value}`,
+      );
+    }
+    if (!INSTANT_RE.test(value)) {
+      throw new RangeError(
+        `Invalid instant (expected an ISO 8601 date-time ending in Z or ±HH:mm): ${value}`,
+      );
+    }
   }
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {

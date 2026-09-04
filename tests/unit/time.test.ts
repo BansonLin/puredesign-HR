@@ -64,6 +64,12 @@ describe("taipeiDateOf", () => {
     expect(() => isPastCutoff("2026-09-04", "18:00", "2026-09-04")).toThrow(RangeError);
     expect(() => formatTaipei("2026-09-04")).toThrow(RangeError);
   });
+
+  it("rejects ISO date-times without a Z / ±HH:mm offset", () => {
+    expect(() => taipeiDateOf("2026-09-04T18:00:00")).toThrow(RangeError);
+    expect(() => isPastCutoff("2026-09-04", "18:00", "2026-09-04T18:00:00")).toThrow(RangeError);
+    expect(() => taipeiDateOf("2026-09-04T18:00:00+0800")).toThrow(RangeError);
+  });
 });
 
 describe("cutoffInstant / isPastCutoff", () => {

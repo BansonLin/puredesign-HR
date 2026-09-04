@@ -29,6 +29,8 @@ import {
   YEN_R1_RESPONSE_LAG_MS,
   type FixtureDailyLog,
   type SeedQuestion,
+  type SeedQuestionType,
+  type SeedShowIf,
 } from "@seed/fixtures";
 
 /**
@@ -74,6 +76,59 @@ const VERSIONS: Array<{ key: string; questions: readonly SeedQuestion[]; count: 
   { key: "newcomer_daily", questions: NEWCOMER_DAILY_QUESTIONS, count: 19 },
   { key: "manager_response", questions: MANAGER_RESPONSE_QUESTIONS, count: 2 },
   { key: "weekly_feedback", questions: WEEKLY_FEEDBACK_QUESTIONS, count: 4 },
+];
+
+/** One §11 question row: [key, label, type, options, required, show_if, slot, order]. */
+type QuestionTuple = [
+  key: string,
+  label: string,
+  type: SeedQuestionType,
+  options: readonly string[] | undefined,
+  required: boolean,
+  show_if: SeedShowIf | undefined,
+  slot: string | null,
+  order: number,
+];
+
+function toTuples(questions: readonly SeedQuestion[]): QuestionTuple[] {
+  return questions.map((q) => [
+    q.key, q.label, q.type, q.options, q.required, q.show_if, q.slot, q.order,
+  ]);
+}
+
+// CLAUDE.md §11, copied verbatim (note the full-width commas inside options).
+const NEWCOMER_DAILY_TABLE: QuestionTuple[] = [
+  ["r1_status", "昨日項目一狀態", "single_select", ["完成", "持續中", "取消", "昨日無此項"], true, undefined, "result.item1.status", 1],
+  ["r1_reason", "項目一未完成原因", "short_text", undefined, false, { question_key: "r1_status", op: "in", value: ["持續中", "取消"] }, "result.item1.reason", 2],
+  ["r2_status", "昨日項目二狀態", "single_select", ["完成", "持續中", "取消", "昨日無此項"], true, undefined, "result.item2.status", 3],
+  ["r2_reason", "項目二未完成原因", "short_text", undefined, false, { question_key: "r2_status", op: "in", value: ["持續中", "取消"] }, "result.item2.reason", 4],
+  ["r3_status", "昨日項目三狀態", "single_select", ["完成", "持續中", "取消", "昨日無此項"], true, undefined, "result.item3.status", 5],
+  ["r3_reason", "項目三未完成原因", "short_text", undefined, false, { question_key: "r3_status", op: "in", value: ["持續中", "取消"] }, "result.item3.reason", 6],
+  ["extra_work", "臨時新增工作", "short_text", undefined, false, undefined, "result.extra_work", 7],
+  ["blocker", "今日卡點", "single_select", ["沒有", "有，已找人處理中", "有，已解決", "有，尚未回報"], true, undefined, "result.blocker.status", 8],
+  ["blocker_detail", "卡點說明", "short_text", undefined, false, { question_key: "blocker", op: "neq", value: "沒有" }, "result.blocker.detail", 9],
+  ["learned", "今日學到一件事", "short_text", undefined, false, undefined, "result.learned", 10],
+  ["p1_text", "明日項目一", "short_text", undefined, true, undefined, "plan.item1.text", 11],
+  ["p1_expect", "明日項目一預計", "single_select", ["完成", "跨日"], true, undefined, "plan.item1.expect", 12],
+  ["p2_text", "明日項目二", "short_text", undefined, false, undefined, "plan.item2.text", 13],
+  ["p2_expect", "明日項目二預計", "single_select", ["完成", "跨日"], false, { question_key: "p2_text", op: "not_empty" }, "plan.item2.expect", 14],
+  ["p3_text", "明日項目三", "short_text", undefined, false, undefined, "plan.item3.text", 15],
+  ["p3_expect", "明日項目三預計", "single_select", ["完成", "跨日"], false, { question_key: "p3_text", op: "not_empty" }, "plan.item3.expect", 16],
+  ["top", "明日最重要的一件事", "single_select", ["項目一", "項目二", "項目三"], true, undefined, "plan.top_priority", 17],
+  ["support", "明日需要支援", "single_select", ["不需要", "需要"], true, undefined, "plan.support.need", 18],
+  ["support_detail", "支援對象與內容", "short_text", undefined, false, { question_key: "support", op: "eq", value: "需要" }, "plan.support.detail", 19],
+];
+
+const MANAGER_RESPONSE_TABLE: QuestionTuple[] = [
+  ["status", "處理狀態", "single_select", ["已讀，無需處理", "已處理", "需 HR 協助"], true, undefined, "response.status", 1],
+  ["comment", "一句話回饋", "short_text", undefined, false, undefined, "response.comment", 2],
+];
+
+const WEEKLY_FEEDBACK_TABLE: QuestionTuple[] = [
+  ["week_start", "週起始日", "date", undefined, true, undefined, "weekly.start_date", 1],
+  ["good", "做得好的一件事", "short_text", undefined, true, undefined, "weekly.good", 2],
+  ["improve", "要改的一件事", "short_text", undefined, true, undefined, "weekly.improve", 3],
+  ["next_focus", "下週重點", "short_text", undefined, true, undefined, "weekly.next_focus", 4],
 ];
 
 function bySlot(questions: readonly SeedQuestion[], slot: string): SeedQuestion {
@@ -138,47 +193,17 @@ describe("base.ts — form templates v1 (§11)", () => {
     }
   });
 
-  it("newcomer_daily matches §11 question by question", () => {
-    const q = NEWCOMER_DAILY_QUESTIONS;
-    expect(q.map((x) => x.key)).toEqual([
-      "r1_status", "r1_reason", "r2_status", "r2_reason", "r3_status", "r3_reason",
-      "extra_work", "blocker", "blocker_detail", "learned",
-      "p1_text", "p1_expect", "p2_text", "p2_expect", "p3_text", "p3_expect",
-      "top", "support", "support_detail",
-    ]);
-    expect(q.filter((x) => x.required).map((x) => x.key)).toEqual([
-      "r1_status", "r2_status", "r3_status", "blocker", "p1_text", "p1_expect", "top", "support",
-    ]);
-    expect(bySlot(q, "result.item1.status").options).toEqual(["完成", "持續中", "取消", "昨日無此項"]);
-    expect(bySlot(q, "result.item1.reason").show_if).toEqual({
-      question_key: "r1_status", op: "in", value: ["持續中", "取消"],
-    });
-    expect(bySlot(q, "result.blocker.status").options).toEqual([
-      "沒有", "有，已找人處理中", "有，已解決", "有，尚未回報",
-    ]);
-    expect(bySlot(q, "result.blocker.detail").show_if).toEqual({
-      question_key: "blocker", op: "neq", value: "沒有",
-    });
-    expect(bySlot(q, "plan.item2.expect").show_if).toEqual({ question_key: "p2_text", op: "not_empty" });
-    expect(bySlot(q, "plan.item3.expect").show_if).toEqual({ question_key: "p3_text", op: "not_empty" });
-    expect(bySlot(q, "plan.top_priority").options).toEqual(["項目一", "項目二", "項目三"]);
-    expect(bySlot(q, "plan.support.detail").show_if).toEqual({ question_key: "support", op: "eq", value: "需要" });
-    expect(q.find((x) => x.key === "blocker")?.label).toBe("今日卡點");
-    expect(q.find((x) => x.key === "top")?.label).toBe("明日最重要的一件事");
+  it("newcomer_daily equals the §11 table (19 rows, questions 2–20 as order 1–19)", () => {
+    expect(NEWCOMER_DAILY_TABLE).toHaveLength(19);
+    expect(toTuples(NEWCOMER_DAILY_QUESTIONS)).toEqual(NEWCOMER_DAILY_TABLE);
   });
 
-  it("manager_response and weekly_feedback match §11", () => {
-    expect(MANAGER_RESPONSE_QUESTIONS.map((x) => [x.key, x.type, x.required, x.slot])).toEqual([
-      ["status", "single_select", true, "response.status"],
-      ["comment", "short_text", false, "response.comment"],
-    ]);
-    expect(MANAGER_RESPONSE_QUESTIONS[0].options).toEqual(["已讀，無需處理", "已處理", "需 HR 協助"]);
-    expect(WEEKLY_FEEDBACK_QUESTIONS.map((x) => [x.key, x.type, x.required, x.slot])).toEqual([
-      ["week_start", "date", true, "weekly.start_date"],
-      ["good", "short_text", true, "weekly.good"],
-      ["improve", "short_text", true, "weekly.improve"],
-      ["next_focus", "short_text", true, "weekly.next_focus"],
-    ]);
+  it("manager_response equals the §11 table (2 rows)", () => {
+    expect(toTuples(MANAGER_RESPONSE_QUESTIONS)).toEqual(MANAGER_RESPONSE_TABLE);
+  });
+
+  it("weekly_feedback equals the §11 table (4 rows)", () => {
+    expect(toTuples(WEEKLY_FEEDBACK_QUESTIONS)).toEqual(WEEKLY_FEEDBACK_TABLE);
   });
 });
 

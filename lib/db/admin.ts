@@ -7,8 +7,9 @@ import type { Database } from "@/lib/db/types";
 /**
  * Service-role Supabase client (PLAN 5.5).
  *
- * This is the ONLY file allowed to read SUPABASE_SERVICE_ROLE_KEY
- * (T03 secrets-boundary test; the sole exception is tests/e2e/global-setup.ts).
+ * Which files may read SUPABASE_SERVICE_ROLE_KEY is defined by
+ * ALLOWED_SECRET_FILES in tests/unit/secrets-boundary.test.ts (T03); that
+ * list is the single source of truth and is not repeated here.
  * All business reads/writes go through this client: lib/db/queries, Server
  * Actions, Route Handlers and the seed script. Authorisation is never done
  * here; it lives in lib/auth/guard.ts.

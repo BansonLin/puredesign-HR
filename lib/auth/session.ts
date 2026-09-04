@@ -15,6 +15,9 @@ import type { Database } from "@/lib/db/types";
  * table query here would silently return zero rows). Business data goes
  * through lib/db/admin.ts; role checks live in lib/auth/guard.ts.
  *
+ * `createSessionClient` is module-private: the four auth actions below are
+ * the only way to use it.
+ *
  * "Session lasts 30 days" (CLAUDE.md §3) = cookie maxAge below + refresh
  * token rotation performed by middleware.ts (T07).
  */
@@ -35,7 +38,7 @@ function requireEnv(name: string): string {
   return value;
 }
 
-export async function createSessionClient() {
+async function createSessionClient() {
   const cookieStore = await cookies();
   return createServerClient<Database>(
     requireEnv("NEXT_PUBLIC_SUPABASE_URL"),

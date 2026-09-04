@@ -16,6 +16,11 @@ const BANNED = [
   { pattern: /\.getHours\(\)/, label: "getHours()" },
   { pattern: /\.getDay\(\)/, label: "getDay()" },
   { pattern: /\.toLocaleDateString\(/, label: "toLocaleDateString(" },
+  { pattern: /\.getFullYear\(\)/, label: "getFullYear()" },
+  { pattern: /\.getMonth\(\)/, label: "getMonth()" },
+  { pattern: /\.getMinutes\(\)/, label: "getMinutes()" },
+  { pattern: /\.toLocaleString\(/, label: "toLocaleString(" },
+  { pattern: /\.toLocaleTimeString\(/, label: "toLocaleTimeString(" },
 ];
 
 function listSourceFiles(dir: string): string[] {
