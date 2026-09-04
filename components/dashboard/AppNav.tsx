@@ -14,9 +14,10 @@ import { cn } from "@/components/ui/utils";
  * Exactly ONE item may be current: nav sets nest (`/manager` is a prefix of
  * `/manager/weekly`), so a plain prefix test would mark both as
  * `aria-current="page"` on /manager/weekly. `currentNavHref` therefore keeps
- * the LONGEST matching href, and the list marks it by INDEX — the first item
- * with that href — so a nav that lists the same href twice still marks one
- * item, not two (D-53).
+ * the LONGEST matching href, and `currentNavIndex` turns it into the index of
+ * the FIRST item with that href — so a nav that lists the same href twice
+ * still marks one item, not two (D-53). The component renders from that index,
+ * so both functions are covered by the unit tests.
  */
 export interface AppNavItem {
   href: string;
@@ -48,18 +49,27 @@ export function currentNavHref(pathname: string, items: readonly AppNavItem[]): 
   return current;
 }
 
+/**
+ * The INDEX of the single current item — the first item whose href is
+ * `currentNavHref`, or null when no item matches. `AppNav` compares against
+ * this index rather than against the href so that a nav listing the same href
+ * twice still marks exactly one entry (D-53).
+ */
+export function currentNavIndex(pathname: string, items: readonly AppNavItem[]): number | null {
+  const href = currentNavHref(pathname, items);
+  return href === null ? null : items.findIndex((i) => i.href === href);
+}
+
 export function AppNav({ items, label = "主選單" }: AppNavProps) {
   const pathname = usePathname();
-  const currentHref = currentNavHref(pathname, items);
+  const currentIndex = currentNavIndex(pathname, items);
   return (
     <nav aria-label={label} className="-mx-4 border-b bg-background">
       <ul className="flex">
         {items.map((item, index) => {
           // By index, not by href: a nav listing the same href twice would
           // otherwise light up both entries.
-          const current =
-            item.href === currentHref &&
-            items.findIndex((candidate) => candidate.href === currentHref) === index;
+          const current = currentIndex === index;
           return (
             <li key={`${item.href}-${index}`} className="flex-1">
               <Link

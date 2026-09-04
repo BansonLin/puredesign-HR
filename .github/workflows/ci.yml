@@ -181,7 +181,7 @@ jobs:
       - name: Seed (§11 fixture)
         run: pnpm db:seed --verify
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Playwright smoke (flow / authz / first-login / rls)
+      - name: Playwright e2e (every spec in tests/e2e)
         run: pnpm exec playwright test
       # Always uploaded: on failure this carries the traces, on success it
       # carries the 375px screenshots mobile.spec.ts takes of all nine pages,

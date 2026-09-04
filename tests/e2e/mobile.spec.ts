@@ -133,6 +133,10 @@ test.describe("375px 版面稽核", () => {
       // 抽屜開啟：the sheet is the one layout state the closed page hides,
       // and it carries its own 44px submit button.
       const respond: Locator = page.getByTestId("respond-button").first();
+      // Scroll first: the (front) header is `sticky top-0 z-10 h-12`, so
+      // Playwright's own scroll-into-view can leave the button underneath it
+      // and the click would be intercepted by the header.
+      await respond.scrollIntoViewIfNeeded();
       await respond.click();
       const drawer = page.getByRole("dialog");
       await expect(drawer).toBeVisible();

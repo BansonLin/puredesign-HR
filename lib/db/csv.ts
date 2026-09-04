@@ -61,6 +61,14 @@ const CSV_FORMULA_LEAD = /^[=+\-@\t\r]/;
  * formula. Prefixing `CSV_FORMULA_GUARD` keeps the cell text.
  * `unescapeCsvFormulaGuard` is the inverse and MUST be applied by the Phase 2
  * CSV import before the value reaches `answers`.
+ *
+ * Known trade-off, NOT verified here: whether the reader shows that leading
+ * quote depends on the app and on how the file is opened. Excel opening a
+ * .csv directly usually absorbs it as the "this cell is text" marker, but
+ * other import paths (LibreOffice Calc, Google Sheets, an import wizard that
+ * treats the column as plain text) may keep it visible. The guard is kept
+ * anyway — protection and a reversible round trip come first — so once we are
+ * live, ask HR to open one export the way they actually do and confirm.
  */
 export function csvCell(value: string | null | undefined): string {
   if (value === null || value === undefined) return "";

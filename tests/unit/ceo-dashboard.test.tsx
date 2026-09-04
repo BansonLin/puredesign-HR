@@ -36,6 +36,7 @@ import {
   DEPARTMENTS,
   EXPECTED_METRICS_0904_1800,
   FIXTURE_NEWCOMERS,
+  FIXTURE_PROFILES,
   SETTINGS,
 } from "@seed/fixtures";
 import { buildSeedPlan } from "@seed/plan";
@@ -99,8 +100,15 @@ const NEWCOMERS: Newcomer[] = FIXTURE_NEWCOMERS.map((n) => ({
   department_id: departmentIdOf(n.department),
 }));
 
-/** `listProfiles()` as the page passes it to `alertRates` (A02 sample filter). */
-const PROFILES: MetricProfile[] = FIXTURE_NEWCOMERS.map((n) => ({ id: n.id, status: n.status }));
+/**
+ * `listProfiles()` as the page passes it to `alertRates` (A02 sample filter).
+ * The page hands over EVERY profile row, not just the four active newcomers,
+ * so the population here is `FIXTURE_PROFILES` — the four managers, the four
+ * newcomers and `e2e_fresh` (`status='sample'`). Without the sample account
+ * the filter `alertRates` applies would have nothing to exclude and that path
+ * would go untested.
+ */
+const PROFILES: MetricProfile[] = FIXTURE_PROFILES.map((p) => ({ id: p.id, status: p.status }));
 
 const ALL_MILESTONES: DashboardMilestone[] = FIXTURE_NEWCOMERS.flatMap((n) =>
   milestonesFor(n.start_date).map((due) => ({

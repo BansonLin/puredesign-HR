@@ -37,7 +37,7 @@ seed 由 `supabase/seed/seed.ts` 執行（`pnpm db:seed`），以 service role �
 
 | 指令 | 做什麼 | 准許環境 |
 |---|---|---|
-| `pnpm db:seed --base` | 只寫 base：departments、settings（含 `rules` 預設）、三張範本 v1、`banson`／`hr`／`ceo` 帳號 | 本機、staging、**production**（上線順序：`supabase db push` → `pnpm db:seed --base`） |
+| `pnpm db:seed --base` | 只寫 base：departments、settings（含 `rules` 預設）、三張範本 v1、`banson`／`hr`／`ceo` 帳號 | 本機、staging、**production**（上線順序見 8.3，唯一出處） |
 | `pnpm db:seed` | base ＋ fixture：四主管、四新人、`e2e_fresh`、milestones（15 筆）、§11 的 8 筆日誌、2 筆主管回應、1 筆週回饋，並由規則產生 2 筆預警 | 本機、staging、CI；`NODE_ENV=production` 時拒絕 |
 | `pnpm db:seed --verify` | 連跑兩次（可與 `--base` 或完整模式並用）並比對各表筆數與不變量；base 預期 profiles 3、submissions 0、alerts 0；完整 submissions 11、alerts 2；任一不符即 exit 1 | 同所搭配的模式 |
 | `pnpm db:seed --anchor YYYY-MM-DD` | 完整模式，並把 fixture 的「9/3」平移到指定日期（見 1.4） | 只准本機與 staging；`CI=true` 或搭配 `--base`／`--milestones-only` 時拒絕 |
@@ -98,7 +98,7 @@ pnpm db:seed --anchor <上一個工作日>
 - 例：驗收日 2026-09-18（週五）→ `pnpm db:seed --anchor 2026-09-17`。四位新人的日誌會落在 9/16、9/17；預警在 9/17 17:03／17:06 產生；採購主管的回應在 9/18 09:10；洪湘庭的 R2 自 9/18 17:06 起顯示逾時未回。
 - 先確認 `.env.local` 指向 staging（`SEED_ALLOWED_PROJECT_REF`＝staging ref），完成後看到 `seed  alerts 與預期一致：…` 與 `seed  完成` 即可。
 - 想同時確認可重跑：`pnpm db:seed --anchor <日期> --verify`（只在 staging 尚無其他 seed 日期的資料時筆數才會等於預期，見下一點）。
-- 注意：seed 不刪列。若之前已用別的 anchor 跑過，舊日期的日誌與預警會留在資料庫（儀表板會多出那幾天），`--verify` 的筆數比對也會因此失敗。需要乾淨的示範資料時，先把 staging 資料庫重置（supabase CLI 對 staging 專案 `db reset`；**絕不對 production 執行**），再 `pnpm db:push`（機器要先 link 過，見 8.3）→ `pnpm db:seed --anchor <日期>`。
+- 注意：seed 不刪列。若之前已用別的 anchor 跑過，舊日期的日誌與預警會留在資料庫（儀表板會多出那幾天），`--verify` 的筆數比對也會因此失敗。需要乾淨的示範資料時，先把 staging 資料庫重置：`pnpm exec supabase db reset --linked`（**一定要加 `--linked`**；裸的 `supabase db reset` 重置的是本機 Docker 堆疊，不是 link 的遠端專案。機器要先 link 過，見 8.3；**絕不對 production 執行**），再 `pnpm db:push` → `pnpm db:seed --anchor <日期>`。
 - 不得對 production 執行完整模式或 `--anchor`（seed 會拒絕 `NODE_ENV=production`，但 `.env.local` 指錯專案仍靠 `SEED_ALLOWED_PROJECT_REF` 擋）。
 - 示範帳號的密碼在重跑時不會被動到。若忘了 `SEED_PASSWORD` 當初設什麼、要把所有示範帳號重設成新密碼，加 `--reset-passwords`（見 6.3）。
 
@@ -266,16 +266,17 @@ Phase 1 沒有 `/admin/users`，所以新人／主管帳號只有兩種建法。
      role: "newcomer",                           // 或 "manager"
      department: "工務",                          // 必須是既有部門名稱
      manager_username: "mgr_construction",       // 新人才需要；主管填 null
-     start_date: FIXTURE_START_DATE,             // 或 "2026-10-01"
+     start_date: FIXTURE_START_DATE,             // 新人必填；主管填 null（見下一步：有到職日就會產生節點）
      status: "active",
      must_change_password: false,                // 要走首次改密碼就填 true
    },
    ```
 
-2. **同步更新筆數期望值**：`supabase/seed/fixtures/expected.ts` 的 `EXPECTED_ROW_COUNTS.full` 是硬編碼的，加一位新人要把 `profiles` ＋1、`milestones` ＋3（加主管則只有 `profiles` ＋1）。不改的話，`pnpm db:seed --verify` 會因筆數不符 exit 1，`tests/unit/fixtures.test.ts` 也會紅。
-3. 跑 `pnpm db:seed`。seed 會**一次做完三件事**：以 `{username}@pure.internal` 建 Supabase Auth 使用者（已勾 email confirm）、寫入 `profiles` 一列、依到職日建 D30／D60／D90 三筆 `milestones`。
-4. 跑 `pnpm test` 確認全綠，再送 PR（§13 完成定義要求 lint／typecheck／unit／e2e 全綠）。
-5. 密碼是 `SEED_PASSWORD`。既有帳號重跑不會被改密碼。
+2. **同步更新筆數期望值**：`supabase/seed/fixtures/expected.ts` 的 `EXPECTED_ROW_COUNTS.full` 是硬編碼的。每加一人 `profiles` ＋1；`milestones` 則看**到職日**而不是角色——`seedMilestones()` 只跳過 `start_date` 為 null 的人，所以任何填了 `start_date` 的人（含主管）都會 ＋3，`start_date: null` 的人 ＋0。不改的話，`pnpm db:seed --verify` 會因筆數不符 exit 1。
+3. **同步更新帳號總數斷言**：`tests/unit/fixtures.test.ts` 把帳號總數硬編碼成 12（測試名稱「12 accounts with unique fixed ids and DB-valid usernames」與其中三行 `toHaveLength(12)`／`.size).toBe(12)`），加一人要一併改成新的總數，否則 `pnpm test` 會紅。
+4. 跑 `pnpm db:seed`。seed 會**一次做完三件事**：以 `{username}@pure.internal` 建 Supabase Auth 使用者（已勾 email confirm）、寫入 `profiles` 一列、依到職日建 D30／D60／D90 三筆 `milestones`。
+5. 跑 `pnpm test` 確認全綠，再送 PR（§13 完成定義要求 lint／typecheck／unit／e2e 全綠）。
+6. 密碼是 `SEED_PASSWORD`。既有帳號重跑不會被改密碼。
 
 > 這條路會動到 repo 的程式碼，要走分支 → PR → 人審（CLAUDE.md §0）。真正上線的名單維護請等 Phase 2 的 `/admin/users`。
 
