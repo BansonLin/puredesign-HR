@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getAdminClient } from "@/lib/db/admin";
-import type { Tables } from "@/lib/db/types";
+import type { Enums, Json, Tables } from "@/lib/db/types";
 
 export type Submission = Tables<"submissions">;
 
@@ -128,5 +128,91 @@ export async function listWeeklyFeedback(
     .order("week_start", { ascending: false })
     .order("submitted_at", { ascending: false })
     .throwOnError();
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Daily-log writes (PLAN T14 / 4.9.2)
+// ---------------------------------------------------------------------------
+
+export interface DailyLogInsert {
+  user_id: string;
+  form_version_id: string;
+  /** YYYY-MM-DD (Taipei), from `prepareDailyLog`. */
+  log_date: string;
+  answers: Json;
+  /** UTC ISO. */
+  submitted_at: string;
+  /** UTC ISO; defaults to `submitted_at`. */
+  updated_at?: string;
+  source?: Enums<"submission_source">;
+}
+
+export interface DailyLogUpdate {
+  form_version_id: string;
+  answers: Json;
+  /** UTC ISO. */
+  updated_at: string;
+}
+
+export const DAILY_LOG_EXISTS = "今天的日誌已存在";
+export const DAILY_LOG_NOT_FOUND = "找不到要更新的日誌";
+
+/**
+ * Insert a new daily log. The natural key `(template_key, user_id, log_date)`
+ * is looked up first (non-deleted rows) and an existing row throws
+ * `DAILY_LOG_EXISTS` — never supabase-js `upsert`: the partial unique index
+ * (`where deleted_at is null`) cannot be used as an ON CONFLICT target through
+ * PostgREST (PLAN 4.9.2, D-06). A concurrent insert that slips between the
+ * select and the insert is still rejected by the index (23505) and surfaces
+ * as a thrown error for the caller to report.
+ */
+export async function insertDailyLog(input: DailyLogInsert): Promise<Submission> {
+  const existing = await getLogByDate(input.user_id, input.log_date);
+  if (existing) throw new Error(DAILY_LOG_EXISTS);
+
+  const { data } = await getAdminClient()
+    .from("submissions")
+    .insert({
+      template_key: "newcomer_daily",
+      form_version_id: input.form_version_id,
+      user_id: input.user_id,
+      log_date: input.log_date,
+      answers: input.answers,
+      source: input.source ?? "app",
+      submitted_at: input.submitted_at,
+      updated_at: input.updated_at ?? input.submitted_at,
+    })
+    .select("*")
+    .single()
+    .throwOnError();
+  return data;
+}
+
+/**
+ * Update the answers of an existing (non-deleted) daily log found by
+ * `getLogByDate`. `submitted_at`, `user_id` and `log_date` never change;
+ * `form_version_id` is rewritten to the active version (§6: a resubmit always
+ * uses the active version). Throws `DAILY_LOG_NOT_FOUND` when the id no
+ * longer matches a live daily log (soft-deleted meanwhile).
+ */
+export async function updateDailyLog(
+  id: string,
+  patch: DailyLogUpdate,
+): Promise<Submission> {
+  const { data } = await getAdminClient()
+    .from("submissions")
+    .update({
+      form_version_id: patch.form_version_id,
+      answers: patch.answers,
+      updated_at: patch.updated_at,
+    })
+    .eq("id", id)
+    .eq("template_key", "newcomer_daily")
+    .is("deleted_at", null)
+    .select("*")
+    .maybeSingle()
+    .throwOnError();
+  if (!data) throw new Error(DAILY_LOG_NOT_FOUND);
   return data;
 }

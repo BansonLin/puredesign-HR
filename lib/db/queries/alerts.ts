@@ -1,7 +1,8 @@
 import "server-only";
 
 import { getAdminClient } from "@/lib/db/admin";
-import type { Enums, Tables } from "@/lib/db/types";
+import type { Enums, Json, Tables } from "@/lib/db/types";
+import type { ExistingAlertLike, ReconcileResult } from "@/lib/rules/types";
 
 export type Alert = Tables<"alerts">;
 export type AlertStatus = Enums<"alert_status">;
@@ -59,4 +60,129 @@ export async function listAlertsWithSubmission(
     ...alert,
     submission: submissions,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile input / output (PLAN T14, A10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every `alerts` row of one submission, all statuses — the `existing` input
+ * of `reconcile` (lib/rules/run.ts). This is a write-path read on a
+ * submission the caller has already loaded live (`getLogByDate`), not a
+ * display read, so the A05 (1) join is not needed here.
+ */
+export async function listAlertsForSubmission(submissionId: string): Promise<Alert[]> {
+  const { data } = await getAdminClient()
+    .from("alerts")
+    .select("*")
+    .eq("submission_id", submissionId)
+    .order("rule_key", { ascending: true })
+    .throwOnError();
+  return data;
+}
+
+export interface ApplyAlertChangesTarget {
+  submissionId: string;
+  /** The newcomer (alerts.user_id = submissions.user_id). */
+  userId: string;
+}
+
+export interface ApplyAlertChangesResult {
+  inserted: number;
+  updated: number;
+  closed: number;
+  reopened: number;
+}
+
+/**
+ * Persist a `ReconcileResult` (A10 state machine) for one submission — the
+ * only writer of `alerts` besides the manager-response path (T18) and the
+ * HR data page (Phase 2). Called by the /me/today Server Action and the seed.
+ *
+ *   insert       → status 'open', created_at = plan.created_at (= the log's
+ *                  submitted_at), responded_* / closed_* null. Written with
+ *                  ON CONFLICT (submission_id, rule_key) DO NOTHING: a row that
+ *                  appeared between the reconcile read and this write is left
+ *                  as the other writer stored it (never downgraded to open).
+ *   updateDetail → only `detail`.
+ *   close        → status 'closed', closed_at, closed_by null, closed_reason 'resubmitted'.
+ *   reopen       → status 'open', detail, created_at = plan.created_at,
+ *                  responded_at / response_submission_id / closed_* null.
+ *   untouched    → no write.
+ *
+ * Writes go one row at a time through PostgREST (no transaction, D-26); the
+ * submission row is written before this is called, so a failure here leaves
+ * the log saved and the next resubmit or HR 「重跑」 repairs the alerts.
+ */
+export async function applyAlertChanges(
+  plan: ReconcileResult<Pick<Alert, "id"> & ExistingAlertLike>,
+  target: ApplyAlertChangesTarget,
+): Promise<ApplyAlertChangesResult> {
+  const db = getAdminClient();
+  const result: ApplyAlertChangesResult = { inserted: 0, updated: 0, closed: 0, reopened: 0 };
+
+  if (plan.insert.length > 0) {
+    const rows = plan.insert.map((item) => ({
+      submission_id: target.submissionId,
+      user_id: target.userId,
+      rule_key: item.rule_key,
+      detail: item.detail as unknown as Json,
+      status: "open" as const,
+      created_at: item.created_at,
+      responded_at: null,
+      response_submission_id: null,
+      closed_at: null,
+      closed_by: null,
+      closed_reason: null,
+    }));
+    await db
+      .from("alerts")
+      .upsert(rows, { onConflict: "submission_id,rule_key", ignoreDuplicates: true })
+      .throwOnError();
+    result.inserted = rows.length;
+  }
+
+  for (const item of plan.updateDetail) {
+    await db
+      .from("alerts")
+      .update({ detail: item.detail as unknown as Json })
+      .eq("id", item.alert.id)
+      .throwOnError();
+    result.updated += 1;
+  }
+
+  for (const item of plan.close) {
+    await db
+      .from("alerts")
+      .update({
+        status: "closed",
+        closed_at: item.closed_at,
+        closed_by: null,
+        closed_reason: item.closed_reason,
+      })
+      .eq("id", item.alert.id)
+      .throwOnError();
+    result.closed += 1;
+  }
+
+  for (const item of plan.reopen) {
+    await db
+      .from("alerts")
+      .update({
+        status: "open",
+        detail: item.detail as unknown as Json,
+        created_at: item.created_at,
+        responded_at: null,
+        response_submission_id: null,
+        closed_at: null,
+        closed_by: null,
+        closed_reason: null,
+      })
+      .eq("id", item.alert.id)
+      .throwOnError();
+    result.reopened += 1;
+  }
+
+  return result;
 }
