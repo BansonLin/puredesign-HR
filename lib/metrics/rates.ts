@@ -7,10 +7,10 @@
  * Alert population (A08(b)): only alerts with `status ∈ {open, responded}`
  * whose daily log is not soft-deleted. `closed` alerts (resubmitted,
  * submission_deleted …) are not facts about manager behaviour and are
- * dropped everywhere. Soft-deleted logs are excluded by
- * `listAlertsWithSubmission()` (PLAN A05) — that is where the exclusion
- * really happens; the `submission.deleted_at` check below only has an effect
- * when the caller happened to select that column.
+ * dropped everywhere. The first line of defence against soft-deleted logs is
+ * `listAlertsWithSubmission()` (PLAN A05 (1)); the `submission.deleted_at`
+ * check below is the second, and it is a real one — that query selects the
+ * column, so the value these functions see is the row's own (D-51).
  *
  * Newcomer population (A02): the alert rates count every alert fact,
  * including those of newcomers who have since left; only `sample` accounts
@@ -72,8 +72,9 @@ export type MetricAlert = Pick<
   "user_id" | "status" | "created_at" | "responded_at" | "response_submission_id"
 > & {
   /**
-   * Only present when the caller selected it; a non-null `deleted_at` drops
-   * the alert. The real exclusion is done by `listAlertsWithSubmission()`.
+   * A non-null `deleted_at` drops the alert. `listAlertsWithSubmission()`
+   * always selects the column (D-51), so this is a second gate on the real
+   * value; it stays optional for callers that assemble rows themselves.
    */
   submission?: { deleted_at?: string | null } | null;
 };

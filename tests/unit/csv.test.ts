@@ -14,6 +14,7 @@ import {
   csvHttpHeaders,
   newcomerCsv,
   toCsv,
+  unescapeCsvFormulaGuard,
   type CsvAlert,
   type CsvLog,
   type CsvResponse,
@@ -108,6 +109,50 @@ describe("csvCell", () => {
   it("renders null and undefined as an empty cell", () => {
     expect(csvCell(null)).toBe("");
     expect(csvCell(undefined)).toBe("");
+  });
+
+  it("guards a value a spreadsheet would run as a formula (D-49)", () => {
+    expect(csvCell("=1+1")).toBe("'=1+1");
+    expect(csvCell("+886912345678")).toBe("'+886912345678");
+    expect(csvCell("-5")).toBe("'-5");
+    expect(csvCell("@here")).toBe("'@here");
+    // the guard goes inside the RFC 4180 quotes, not outside
+    expect(csvCell("=SUM(A1,A2)")).toBe(`"'=SUM(A1,A2)"`);
+    expect(csvCell("\t=1+1")).toBe("'\t=1+1");
+    expect(csvCell("\r=1+1")).toBe(`"'\r=1+1"`);
+  });
+
+  it("leaves a value that only contains those characters later alone", () => {
+    expect(csvCell("宏偉 - 裕福")).toBe("宏偉 - 裕福");
+    expect(csvCell("2026-09-04")).toBe("2026-09-04");
+    expect(csvCell("a@pure.internal")).toBe("a@pure.internal");
+  });
+});
+
+describe("unescapeCsvFormulaGuard (Phase 2 CSV import, D-49)", () => {
+  it("round-trips every guarded value back to what the newcomer wrote", () => {
+    for (const value of ["=1+1", "+886912345678", "-5", "@here", "\t=1+1", "\r=1+1", "=SUM(A1,A2)"]) {
+      const cell = csvCell(value);
+      // strip the RFC 4180 quoting a real parser would remove first
+      const parsed =
+        cell.startsWith('"') && cell.endsWith('"')
+          ? cell.slice(1, -1).replace(/""/g, '"')
+          : cell;
+      expect(parsed).not.toBe(value);
+      expect(unescapeCsvFormulaGuard(parsed)).toBe(value);
+    }
+  });
+
+  it("does not strip a quote from a value that really starts with one", () => {
+    expect(unescapeCsvFormulaGuard("'今天很順")).toBe("'今天很順");
+    expect(unescapeCsvFormulaGuard("'")).toBe("'");
+    expect(unescapeCsvFormulaGuard("''")).toBe("''");
+  });
+
+  it("leaves an unguarded value untouched", () => {
+    expect(unescapeCsvFormulaGuard("完成")).toBe("完成");
+    expect(unescapeCsvFormulaGuard("")).toBe("");
+    expect(unescapeCsvFormulaGuard("=1+1")).toBe("=1+1");
   });
 });
 

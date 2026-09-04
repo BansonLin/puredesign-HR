@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildNinetyDayOverview,
+  COUNTED_THROUGH_PREFIX,
   MILESTONE_PENDING_LABEL,
+  missingRateHint,
   NEXT_MILESTONE_LABEL,
   NinetyDayOverview,
   NO_START_DATE_LABEL,
@@ -186,6 +188,9 @@ describe("NinetyDayOverview component", () => {
     expect(html).toContain("50%"); // 缺交率
     expect(html).toContain("100%"); // 回應率
     expect(html).toContain("1 / 1");
+    // 缺交率's hint names its cut-off day, so it cannot be read against 累計日誌
+    expect(html).toContain(missingRateHint(overviewAt(CLOCK_0904_1800).missingRate!));
+    expect(html).toContain(`${COUNTED_THROUGH_PREFIX} 2026/09/04`);
   });
 
   it("renders 「—」 for an undefined rate and the no-start-date wording", () => {

@@ -89,16 +89,6 @@ export default async function CeoPage() {
     listAlertsWithSubmission({ userIds }),
     listMilestones({ userIds }),
   ]);
-  /**
-   * `listAlertsWithSubmission()` inner-joins on `deleted_at is null` (A05 (1)),
-   * so every row here belongs to a live log; lib/metrics' alert type carries an
-   * optional `submission.deleted_at` as a second gate, and spelling the fact out
-   * is what lets these rows satisfy it (same as /hr).
-   */
-  const metricAlerts = alerts.map((alert) => ({
-    ...alert,
-    submission: { ...alert.submission, deleted_at: null as string | null },
-  }));
   const responseRows = await listResponsesForSubmissions(logs.map((log) => log.id));
   const versions = await loadVersions(responseRows.map((response) => response.form_version_id));
   const roleById = new Map(profiles.map((profile) => [profile.id, profile.role] as const));
@@ -128,7 +118,7 @@ export default async function CeoPage() {
     },
   });
   const rates = alertRates({
-    alerts: metricAlerts,
+    alerts,
     responses,
     profiles,
     thresholdHours: settings.thresholdHours,
@@ -138,14 +128,14 @@ export default async function CeoPage() {
     departments,
     newcomers,
     logs,
-    alerts: metricAlerts,
+    alerts,
     settings: { daily_cutoff_time: settings.cutoff, workweek },
     now,
   });
   const overview = newcomerOverview({
     newcomers,
     logs,
-    alerts: metricAlerts,
+    alerts,
     milestones,
     settings: { daily_cutoff_time: settings.cutoff, workweek },
     now,

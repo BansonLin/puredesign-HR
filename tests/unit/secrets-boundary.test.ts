@@ -19,14 +19,9 @@ const SELF = join("tests", "unit", "secrets-boundary.test.ts");
 const SECRET_NAME = "SUPABASE_SERVICE_ROLE_KEY";
 const ALLOWED_SECRET_FILES = new Set([
   join("lib", "db", "admin.ts"),
+  // The only e2e file that may read the key: it exports
+  // `createServiceRoleClient()` for the specs (T27, DECISIONS D-04).
   join("tests", "e2e", "global-setup.ts"),
-  // TEMPORARY, beyond the four files PLAN T03 / 5.5 list (needs Banson's
-  // sign-off; DECISIONS D-04). Playwright cannot import lib/db/admin.ts
-  // (`server-only`) and tests/e2e/global-setup.ts does not exist until T27,
-  // so rls.spec.ts builds its own service role client for now. T27: export a
-  // `createServiceRoleClient()` helper from global-setup.ts, make rls.spec.ts
-  // import it, and delete this entry.
-  join("tests", "e2e", "rls.spec.ts"),
   ".env.example",
   join(".github", "workflows", "ci.yml"),
 ]);

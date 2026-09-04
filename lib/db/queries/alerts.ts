@@ -7,10 +7,15 @@ import type { ExistingAlertLike, ReconcileResult } from "@/lib/rules/types";
 export type Alert = Tables<"alerts">;
 export type AlertStatus = Enums<"alert_status">;
 
-/** The daily log an alert hangs on (subset of submissions columns). */
+/**
+ * The daily log an alert hangs on (subset of submissions columns).
+ * `deleted_at` is selected even though the inner join already excludes
+ * soft-deleted logs: lib/metrics reads it as a second gate (D-51), and
+ * carrying the real value means no caller has to assert one.
+ */
 export type AlertSubmission = Pick<
   Tables<"submissions">,
-  "id" | "user_id" | "log_date" | "submitted_at" | "form_version_id"
+  "id" | "user_id" | "log_date" | "submitted_at" | "form_version_id" | "deleted_at"
 >;
 
 export type AlertWithSubmission = Alert & { submission: AlertSubmission };
@@ -43,7 +48,7 @@ export async function listAlertsWithSubmission(
   let query = getAdminClient()
     .from("alerts")
     .select(
-      "*, submissions!alerts_submission_id_fkey!inner(id, user_id, log_date, submitted_at, form_version_id)",
+      "*, submissions!alerts_submission_id_fkey!inner(id, user_id, log_date, submitted_at, form_version_id, deleted_at)",
     )
     .is("submissions.deleted_at", null);
   if (opts.userIds) query = query.in("user_id", opts.userIds);

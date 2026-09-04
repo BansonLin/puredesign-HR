@@ -384,6 +384,23 @@ describe("buildTimeline: 採購主管 opens 嚴雅齡 (9/4 18:00)", () => {
     ]);
   });
 
+  it("two responses on one log are ordered by instant, not by the ISO string (D-42)", () => {
+    // The same day written two ways: 09:10+08:00 is 01:10Z (earlier) and
+    // 09:00Z is 17:00+08:00 (later). Sorted as plain strings 「09:00Z」 would
+    // come first, so this case fails the moment `compareInstant` is replaced
+    // by a lexicographic compare.
+    const target = logId(PLAN.logs.find((l) => l.username === "yen_yaling" && l.log_date === "2026-09-03")!.seq);
+    const base = RESPONSES.find((r) => r.target_submission_id === target)!;
+    const days = timeline("yen_yaling", CLOCK_0904_1800, [
+      { ...base, id: "resp-late", submitted_at: "2026-09-04T09:00:00Z" },
+      { ...base, id: "resp-early", submitted_at: "2026-09-04T09:10:00+08:00" },
+    ]);
+    expect(days[0].responses.map((r) => [r.id, r.submittedAtLabel])).toEqual([
+      ["resp-early", "9/4 09:10"],
+      ["resp-late", "9/4 17:00"],
+    ]);
+  });
+
   it("9/2 (first log): no previous plan, no alerts, no responses", () => {
     const day = days[1];
     expect(day.previousDate).toBeNull();

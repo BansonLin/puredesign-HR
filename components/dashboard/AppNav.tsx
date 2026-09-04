@@ -14,7 +14,9 @@ import { cn } from "@/components/ui/utils";
  * Exactly ONE item may be current: nav sets nest (`/manager` is a prefix of
  * `/manager/weekly`), so a plain prefix test would mark both as
  * `aria-current="page"` on /manager/weekly. `currentNavHref` therefore keeps
- * the LONGEST matching href and only that one is marked.
+ * the LONGEST matching href, and the list marks it by INDEX — the first item
+ * with that href — so a nav that lists the same href twice still marks one
+ * item, not two (D-53).
  */
 export interface AppNavItem {
   href: string;
@@ -33,8 +35,9 @@ function matches(pathname: string, href: string): boolean {
 
 /**
  * The href of the single current item: the longest of the items that match
- * `pathname` exactly or as a parent path, or null when none does. Ties (the
- * same href listed twice) keep the first occurrence.
+ * `pathname` exactly or as a parent path, or null when none does. A duplicate
+ * href resolves to that same href; which of the duplicates is rendered as
+ * current is decided by index in `AppNav` (the first one).
  */
 export function currentNavHref(pathname: string, items: readonly AppNavItem[]): string | null {
   let current: string | null = null;
@@ -51,10 +54,14 @@ export function AppNav({ items, label = "主選單" }: AppNavProps) {
   return (
     <nav aria-label={label} className="-mx-4 border-b bg-background">
       <ul className="flex">
-        {items.map((item) => {
-          const current = item.href === currentHref;
+        {items.map((item, index) => {
+          // By index, not by href: a nav listing the same href twice would
+          // otherwise light up both entries.
+          const current =
+            item.href === currentHref &&
+            items.findIndex((candidate) => candidate.href === currentHref) === index;
           return (
-            <li key={item.href} className="flex-1">
+            <li key={`${item.href}-${index}`} className="flex-1">
               <Link
                 href={item.href}
                 aria-current={current ? "page" : undefined}

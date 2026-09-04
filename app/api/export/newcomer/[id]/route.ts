@@ -2,10 +2,9 @@ import { rawAnswersOf } from "@/components/dashboard/NewcomerCard";
 import { requireNewcomerAccess } from "@/lib/auth/guard";
 import { getSessionUser } from "@/lib/auth/session";
 import {
-  buildNewcomerCsvRows,
   csvFilename,
   csvHttpHeaders,
-  toCsv,
+  newcomerCsv,
   type CsvVersion,
 } from "@/lib/db/csv";
 import { listAlertsWithSubmission } from "@/lib/db/queries/alerts";
@@ -29,7 +28,7 @@ import { parseQuestions, type Question } from "@/lib/forms/schema";
  * middleware.ts does not protect /api (it only refreshes the session there),
  * and a download endpoint must answer with a status, not an HTML login page.
  * So the session is checked first and `requireNewcomerAccess` runs only for a
- * signed-in caller (D-38).
+ * signed-in caller (D-41 (2)).
  *
  * Rows: the newcomer's non-deleted daily logs with their answers, the alerts
  * of those logs (any status) and the manager responses targeting them, whose
@@ -91,8 +90,7 @@ export async function GET(_request: Request, context: RouteContext) {
     };
   });
 
-  const table = buildNewcomerCsvRows({ logs, versions, alerts, responses });
-  const body = toCsv([table.header, ...table.rows]);
+  const body = newcomerCsv({ logs, versions, alerts, responses });
 
   return new Response(body, { headers: csvHttpHeaders(csvFilename(newcomer.username)) });
 }

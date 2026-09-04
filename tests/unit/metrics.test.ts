@@ -265,6 +265,29 @@ describe("三指標 at 9/4 18:00 (EXPECTED_METRICS_0904_1800)", () => {
     expect(ms(yen.responded_at!) - ms(yen.created_at)).toBe(YEN_R1_RESPONSE_LAG_MS);
   });
 
+  it("an alert whose log was soft-deleted leaves all three metrics (A05 (1) second gate, D-51)", () => {
+    // `listAlertsWithSubmission()` never returns such a row, but it now
+    // carries the real `deleted_at`, so `alertPopulation` is a true gate: with
+    // 嚴雅齡's 9/3 log soft-deleted only 洪湘庭's open R2 remains.
+    const alerts = data.alerts.map((alert) =>
+      alert.rule_key === "R1"
+        ? { ...alert, submission: { deleted_at: "2026-09-04T10:00:00+08:00" } }
+        : alert,
+    );
+    const rates = alertRates({
+      ...data,
+      alerts,
+      thresholdHours: SETTINGS_ROWS.response_threshold_hours,
+      now: CLOCK_0904_1800,
+    });
+    expect(rates.total).toBe(1);
+    expect(rates.response).toEqual({ numerator: 0, denominator: 1, rate: 0 });
+    expect(rates.within24h).toEqual({ numerator: 0, denominator: 1, rate: 0 });
+    // 誤報率's denominator is the responded alerts only — none are left.
+    expect(rates.falsePositive).toEqual({ numerator: 0, denominator: 0, rate: null });
+    expect(rates.late).toBe(0);
+  });
+
   it("alertRates bundles the three with the A1 late count (0) and the population size (2)", () => {
     const rates = alertRates({ ...data, thresholdHours: SETTINGS_ROWS.response_threshold_hours, now: CLOCK_0904_1800 });
     expect(rates.falsePositive).toEqual(falsePositiveRate(data));

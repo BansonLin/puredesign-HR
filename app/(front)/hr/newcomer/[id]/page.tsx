@@ -81,16 +81,6 @@ export default async function HrNewcomerPage({ params }: PageProps) {
   ]);
   const settings = parseDashboardSettings(rawSettings);
   const workweek = parseWorkweekSetting(rawSettings.workweek);
-  /**
-   * `listAlertsWithSubmission()` inner-joins on `deleted_at is null` (A05 (1)),
-   * so every row here belongs to a live log; lib/metrics' alert type carries an
-   * optional `submission.deleted_at` as a second gate, and spelling the fact
-   * out is what lets these rows satisfy it (same as /hr).
-   */
-  const metricAlerts = alerts.map((alert) => ({
-    ...alert,
-    submission: { ...alert.submission, deleted_at: null as string | null },
-  }));
 
   const responses = await listResponsesForSubmissions(logs.map((log) => log.id));
   const [versions, responders] = await Promise.all([
@@ -104,7 +94,7 @@ export default async function HrNewcomerPage({ params }: PageProps) {
   const overview = buildNinetyDayOverview({
     newcomer,
     logs,
-    alerts: metricAlerts,
+    alerts,
     milestones,
     settings: { daily_cutoff_time: settings.cutoff, workweek },
     now,

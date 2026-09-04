@@ -157,6 +157,13 @@ export const NO_MILESTONE_LABEL = "尚未建立";
 export const MILESTONE_PENDING_LABEL = "未完成";
 export const NEXT_MILESTONE_LABEL = "下一節點";
 export const UNDEFINED_RATE_LABEL = "—";
+/** 缺交率 counts only up to `MissingRate.countedThrough` (D-33), which is not today before the cutoff. */
+export const COUNTED_THROUGH_PREFIX = "計至";
+
+/** 「缺 2 / 4 個工作日（計至 2026/09/04）」 — the 缺交率 hint. */
+export function missingRateHint(value: MissingRate): string {
+  return `缺 ${ratioLabel(value)} 個工作日（${COUNTED_THROUGH_PREFIX} ${formatDate(value.countedThrough)}）`;
+}
 
 /** `50%`; 「—」 when the rate is undefined — `formatPercent` (T24) plus the `null` case. */
 export function rateLabel(value: Ratio | null): string {
@@ -228,7 +235,7 @@ export function NinetyDayOverview({ data }: NinetyDayOverviewProps) {
         <Stat
           label="缺交率"
           value={rateLabel(data.missingRate)}
-          hint={data.missingRate === null ? undefined : `缺 ${ratioLabel(data.missingRate)} 個工作日`}
+          hint={data.missingRate === null ? undefined : missingRateHint(data.missingRate)}
         />
         <Stat label="累計預警" value={`${data.alertCount} 筆`} hint={`待回應 ${data.openCount} 筆`} />
         <Stat label="回應率" value={rateLabel(data.responseRate)} hint={ratioLabel(data.responseRate)} />

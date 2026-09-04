@@ -6,7 +6,10 @@
  * Format (PLAN T25): UTF-8 BOM + CRLF line endings, `text/csv; charset=utf-8`,
  * `Content-Disposition: attachment; filename={username}-daily.csv`. A cell is
  * quoted only when it contains a comma, a double quote or a line break; the
- * quote inside is doubled; `null` becomes an empty cell.
+ * quote inside is doubled; `null` becomes an empty cell. A cell whose text
+ * would be read as a formula by Excel / Numbers is prefixed with a single
+ * quote first (`csvCell`, D-49); `unescapeCsvFormulaGuard` reverses that for
+ * the Phase 2 CSV import.
  *
  * Columns:
  *   `log_date`, `submitted_at` (Taipei),
@@ -35,10 +38,53 @@ export const CSV_BOM = "\uFEFF";
 export const CSV_NEWLINE = "\r\n";
 export const CSV_CONTENT_TYPE = "text/csv; charset=utf-8";
 
-/** One cell: quote when it holds `,` `"` CR or LF; `null` / `undefined` → empty. */
+/**
+ * The single quote Excel / Numbers / LibreOffice read as "this cell is text".
+ * It is not part of the value; `unescapeCsvFormulaGuard` removes it again.
+ */
+export const CSV_FORMULA_GUARD = "'";
+
+/**
+ * Leading characters that make a spreadsheet evaluate the cell instead of
+ * showing it: `=` `+` `-` `@` and the whitespace `\t` / `\r` some apps strip
+ * before parsing, which would expose the character behind them.
+ */
+const CSV_FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+/**
+ * One cell: guard against CSV formula injection first, then quote when the
+ * result holds `,` `"` CR or LF; `null` / `undefined` → empty.
+ *
+ * Guard (D-49): a newcomer may write "-5", "+886...", "@name" or even "=1+1"
+ * in a free-text answer, and HR opens the export in Excel, where a cell
+ * starting with `=` `+` `-` `@` (or with a tab / CR before them) is a
+ * formula. Prefixing `CSV_FORMULA_GUARD` keeps the cell text.
+ * `unescapeCsvFormulaGuard` is the inverse and MUST be applied by the Phase 2
+ * CSV import before the value reaches `answers`.
+ */
 export function csvCell(value: string | null | undefined): string {
   if (value === null || value === undefined) return "";
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  const guarded = CSV_FORMULA_LEAD.test(value) ? CSV_FORMULA_GUARD + value : value;
+  return /[",\r\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
+}
+
+/**
+ * The inverse of the `csvCell` guard, for the Phase 2 CSV import (D-49):
+ * drop ONE leading single quote, and only when what follows still starts
+ * with a formula character - so a value that really begins with a quote
+ * ("'today went well") comes back untouched.
+ *
+ * Round-trips every value except the one ambiguous shape: a value that itself
+ * begins with a quote followed by a formula character ("'=1+1") is
+ * indistinguishable from a guarded "=1+1" and comes back without its quote.
+ * No seed or CLAUDE.md §11 answer has that shape, and escaping the quote as
+ * well would put a stray character in front of every quoted answer in the
+ * file Excel shows HR, which is the export's only consumer.
+ */
+export function unescapeCsvFormulaGuard(value: string): string {
+  if (!value.startsWith(CSV_FORMULA_GUARD)) return value;
+  const rest = value.slice(CSV_FORMULA_GUARD.length);
+  return CSV_FORMULA_LEAD.test(rest) ? rest : value;
 }
 
 /** Rows (header included) → the file body: BOM, CRLF between and after rows. */

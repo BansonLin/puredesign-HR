@@ -115,8 +115,8 @@ jobs:
 
   e2e:
     # Runs on its own runner against its own local stack (same steps as `db`).
-    # T27 wires the four role smoke paths; until then this runs rls.spec.ts
-    # plus the placeholder spec.
+    # The full T27 chain: start → reset → seed → Playwright (global-setup.ts
+    # re-seeds per run; flow / authz / first-login / rls).
     needs: [lint, typecheck, unit, db]
     runs-on: ubuntu-latest
     env:
@@ -152,17 +152,24 @@ jobs:
             | grep -E '^(NEXT_PUBLIC_SUPABASE_URL|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_SERVICE_ROLE_KEY)=' \
             | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
             >> "$GITHUB_ENV"
-      # T04 adds the seed script; T27 enables this step (PLAN T03 / T27:
-      # `pnpm db:seed`). Blocker T04 must settle first: package.json `db:seed`
-      # passes `--env-file=.env.local`, and Node 22 aborts (exit 9) when that
-      # file is missing — as it is on a CI runner. Either (a) write `.env.local`
-      # from $GITHUB_ENV right before seeding
-      # (`printenv | grep -E '^(NEXT_PUBLIC_SUPABASE|SUPABASE_SERVICE|SEED_)' > .env.local`)
-      # or (b) switch `db:seed` to `--env-file-if-exists=.env.local`, then:
-      # - name: Seed (§11 fixture)
-      #   run: pnpm db:seed
+      # §11 fixture. `--verify` seeds twice and compares the row counts with
+      # each other and with EXPECTED_ROW_COUNTS, so a non-idempotent seed
+      # fails here rather than halfway through a spec (§13).
+      - name: Seed (§11 fixture)
+        run: pnpm db:seed --verify
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      - name: Playwright smoke (flow / authz / first-login / rls)
+        run: pnpm exec playwright test
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Stop local stack
         if: always()
         run: supabase stop --no-backup

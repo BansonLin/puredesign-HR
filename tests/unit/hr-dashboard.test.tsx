@@ -26,7 +26,9 @@ import {
   NEED_HR_TITLE,
   NO_NEED_HR_LABEL,
   NO_OVERDUE_LABEL,
+  ON_BEHALF_AT_PREFIX,
   OVERDUE_TITLE,
+  RESPONDED_AT_PREFIX,
 } from "@/components/dashboard/InterventionList";
 import {
   METRIC_LABELS,
@@ -49,6 +51,7 @@ import {
   TODAY_COUNTER_LABELS,
   TodaySubmissions,
 } from "@/components/dashboard/TodaySubmissions";
+import type { Enums } from "@/lib/db/types";
 import {
   buildHrDashboard,
   type DashboardAlert,
@@ -99,12 +102,22 @@ const PLAN = buildSeedPlan();
 
 type Newcomer = DashboardNewcomer & { username: string };
 type Log = DashboardLog & { id: string };
-/** `response_submission_id` links a responded alert to its response row (誤報率). */
+/**
+ * `response_submission_id` links a responded alert to its response row (誤報率);
+ * `submission.deleted_at` is the column `listAlertsWithSubmission()` selects
+ * (D-51), so lib/metrics sees the row's real value here as it does on the page.
+ */
 type Alert = DashboardAlert & {
   detail: Record<string, unknown>;
   response_submission_id: string | null;
+  submission: DashboardAlert["submission"] & { deleted_at: string | null };
 };
-type Response = DashboardResponse & { id: string; response_comment: string | null };
+/** `responder_role` is `profiles.role` of `user_id`, resolved by the page (D-35). */
+type Response = DashboardResponse & {
+  id: string;
+  response_comment: string | null;
+  responder_role?: Enums<"user_role"> | null;
+};
 type Data = HrDashboardData<Newcomer, Log, Alert, Response, DashboardMilestone>;
 
 const SETTINGS_ROWS = {
@@ -148,7 +161,12 @@ function dataAsOf(now: Instant, overrides: Partial<Data> = {}): Data {
         response_submission_id:
           responded && alert.response_seq !== null ? responseId(alert.response_seq) : null,
         detail: alert.detail,
-        submission: { id: submissionId(alert.log_seq), user_id: log.user_id, log_date: log.log_date },
+        submission: {
+          id: submissionId(alert.log_seq),
+          user_id: log.user_id,
+          log_date: log.log_date,
+          deleted_at: null,
+        },
       };
     });
   const responses: Response[] = PLAN.responses
@@ -230,18 +248,6 @@ const NEWCOMERS_WITH_DEPARTMENT: OverviewNewcomer[] = FIXTURE_NEWCOMERS.map((n) 
   department_id: departmentIdOf(n.department),
 }));
 
-/**
- * `listAlertsWithSubmission()` inner-joins on `deleted_at is null` (A05 (1)),
- * so its rows always belong to a live log; lib/metrics reads that flag as a
- * second gate, and the page spells it out the same way.
- */
-type MetricAlertRow = Alert & { submission: { deleted_at: string | null } };
-const metricAlertsOf = (alerts: readonly Alert[]): MetricAlertRow[] =>
-  alerts.map((alert) => ({
-    ...alert,
-    submission: { ...alert.submission, deleted_at: null as string | null },
-  }));
-
 const METRIC_SETTINGS = {
   daily_cutoff_time: SETTINGS.daily_cutoff_time,
   workweek: SETTINGS.workweek as Workweek,
@@ -250,11 +256,11 @@ const METRIC_SETTINGS = {
 /** 三指標 at `now` (A08); `profiles` drops `sample` accounts (A02). */
 const ratesAt = (
   now: Instant,
-  opts: { alerts?: readonly MetricAlertRow[]; profiles?: readonly MetricProfile[] } = {},
+  opts: { alerts?: readonly Alert[]; profiles?: readonly MetricProfile[] } = {},
 ) => {
   const data = dataAsOf(now);
   return alertRates({
-    alerts: opts.alerts ?? metricAlertsOf(data.alerts),
+    alerts: opts.alerts ?? data.alerts,
     responses: data.responses,
     profiles: opts.profiles,
     thresholdHours: SETTINGS.response_threshold_hours,
@@ -268,7 +274,7 @@ const statsAt = (now: Instant, departments: readonly (typeof DEPARTMENTS)[number
     departments,
     newcomers: NEWCOMERS_WITH_DEPARTMENT,
     logs: data.logs,
-    alerts: metricAlertsOf(data.alerts),
+    alerts: data.alerts,
     settings: METRIC_SETTINGS,
     now,
   });
@@ -279,7 +285,7 @@ const overviewAt = (now: Instant, newcomers: readonly OverviewNewcomer[] = NEWCO
   return newcomerOverview({
     newcomers,
     logs: data.logs,
-    alerts: metricAlertsOf(data.alerts),
+    alerts: data.alerts,
     milestones: ALL_MILESTONES,
     settings: METRIC_SETTINGS,
     now,
@@ -445,6 +451,35 @@ describe("InterventionList (HR 介入清單)", () => {
     expect(textOf(html)).toContain("請 HR 協助安排採購訓練");
     expect(html).toContain("2026/09/04 09:10");
     expect(html).toContain(`${NEED_HR_TITLE}（1）`);
+    // a manager filled it in: 「主管回應於 …」 (responder_role is 'manager' here)
+    expect(textOf(html)).toContain(RESPONDED_AT_PREFIX);
+    expect(textOf(html)).not.toContain(ON_BEHALF_AT_PREFIX);
+  });
+
+  it("需 HR 協助 filled in by hr / admin reads 「HR 代填於」, by a manager or an unknown role 「主管回應於」 (§10, D-35)", () => {
+    const base = dataAsOf(CLOCK_0904_1800);
+    const needHrBy = (responder_role: Response["responder_role"]) => {
+      const response: Response = {
+        ...base.responses[0],
+        id: `response-need-hr-${responder_role ?? "unknown"}`,
+        response_status: RESPONSE_STATUS_NEED_HR,
+        response_comment: "請 HR 協助安排採購訓練",
+        responder_role,
+      };
+      const { intervention } = dashboardAt(CLOCK_0904_1800, { responses: [response] });
+      return textOf(renderToStaticMarkup(<InterventionList intervention={intervention} />));
+    };
+
+    for (const role of ["hr", "admin"] as const) {
+      const text = needHrBy(role);
+      expect(text).toContain(ON_BEHALF_AT_PREFIX);
+      expect(text).not.toContain(RESPONDED_AT_PREFIX);
+    }
+    for (const role of ["manager", undefined] as const) {
+      const text = needHrBy(role);
+      expect(text).toContain(RESPONDED_AT_PREFIX);
+      expect(text).not.toContain(ON_BEHALF_AT_PREFIX);
+    }
   });
 });
 
@@ -561,9 +596,9 @@ describe("MetricsTiles (三指標)", () => {
   });
 
   it("(A02) a sample newcomer's alert is excluded once profiles are passed", () => {
-    const base = metricAlertsOf(dataAsOf(CLOCK_0904_1800).alerts);
+    const base = dataAsOf(CLOCK_0904_1800).alerts;
     const sampleId = "00000002-0000-4000-8000-000000000099";
-    const withSample: MetricAlertRow[] = [
+    const withSample: Alert[] = [
       ...base,
       {
         ...base[0],
