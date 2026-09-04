@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# CI never talks to staging (PLAN A01): the `db` and `e2e` jobs each start the
+# supabase CLI local stack on their own runner (jobs do not share runners, so
+# the steps are duplicated on purpose, no composite action). The only GitHub
+# secret is SEED_PASSWORD (PLAN A03). The three Supabase variables are taken
+# from `supabase status -o env` inside the e2e job; they are deliberately NOT
+# defined here, because a workflow-level `env` would take precedence over the
+# values written to $GITHUB_ENV.
+env:
+  APP_TIMEZONE: Asia/Taipei
+  APP_BASE_URL: http://localhost:3000
+  # Keep in sync with the `supabase` devDependency in package.json.
+  SUPABASE_CLI_VERSION: 2.116.0
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [UTC, Asia/Taipei, America/Los_Angeles]
+    env:
+      TZ: ${{ matrix.tz }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  db:
+    # CLAUDE.md §13: migrations run from an empty database to the latest one;
+    # PLAN 4.5: nine tables, RLS enabled on all of them, zero policies.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: Start local stack
+        run: supabase start
+      - name: Reset database (empty -> all migrations)
+        run: supabase db reset
+      - name: Verify schema (nine tables, RLS on, no policies)
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_URL=$(supabase status -o env | sed -nE 's/^DB_URL="(.*)"$/\1/p')
+          test -n "$DB_URL"
+          EXPECTED_TABLES='alerts,audit_log,departments,form_templates,form_versions,milestones,profiles,settings,submissions'
+
+          TABLES=$(psql "$DB_URL" -X -tA -c \
+            "select coalesce(string_agg(tablename, ',' order by tablename), '') from pg_tables where schemaname = 'public'")
+          echo "pg_tables(public): $TABLES"
+          test "$TABLES" = "$EXPECTED_TABLES"
+
+          RLS_ON=$(psql "$DB_URL" -X -tA -c \
+            "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity")
+          echo "pg_class.relrowsecurity = true (public): $RLS_ON"
+          test "$RLS_ON" = "9"
+
+          POLICIES=$(psql "$DB_URL" -X -tA -c \
+            "select count(*) from pg_policies where schemaname = 'public'")
+          echo "pg_policies(public): $POLICIES"
+          test "$POLICIES" = "0"
+      - name: Stop local stack
+        if: always()
+        run: supabase stop --no-backup
+
+  e2e:
+    # Runs on its own runner against its own local stack (same steps as `db`).
+    # T27 wires the four role smoke paths; until then this runs rls.spec.ts
+    # plus the placeholder spec.
+    needs: [lint, typecheck, unit, db]
+    runs-on: ubuntu-latest
+    env:
+      SEED_PASSWORD: ${{ secrets.SEED_PASSWORD }}
+      # Local stack project ref (PLAN T04 seed guard).
+      SEED_ALLOWED_PROJECT_REF: local
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: Start local stack
+        run: supabase start
+      - name: Reset database (empty -> all migrations)
+        run: supabase db reset
+      - name: Export Supabase variables from the local stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase status -o env \
+            --override-name api.url=NEXT_PUBLIC_SUPABASE_URL \
+            --override-name auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY \
+            --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY \
+            | grep -E '^(NEXT_PUBLIC_SUPABASE_URL|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_SERVICE_ROLE_KEY)=' \
+            | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
+            >> "$GITHUB_ENV"
+      # T04 adds the seed script; T27 enables this step (PLAN T03 / T27:
+      # `pnpm db:seed`). Blocker T04 must settle first: package.json `db:seed`
+      # passes `--env-file=.env.local`, and Node 22 aborts (exit 9) when that
+      # file is missing — as it is on a CI runner. Either (a) write `.env.local`
+      # from $GITHUB_ENV right before seeding
+      # (`printenv | grep -E '^(NEXT_PUBLIC_SUPABASE|SUPABASE_SERVICE|SEED_)' > .env.local`)
+      # or (b) switch `db:seed` to `--env-file-if-exists=.env.local`, then:
+      # - name: Seed (§11 fixture)
+      #   run: pnpm db:seed
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - name: Stop local stack
+        if: always()
+        run: supabase stop --no-backup
