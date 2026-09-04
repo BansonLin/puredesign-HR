@@ -7,7 +7,9 @@ import { NextResponse, type NextRequest } from "next/server";
  * Responsibilities — and nothing more:
  *   1. Refresh the Supabase session cookie on every matched request so the
  *      30-day session (cookie maxAge + refresh-token rotation) stays alive.
- *   2. Send anonymous visitors of the signed-in areas to /login?next=….
+ *   2. Send anonymous visitors of the signed-in areas to /login?next=…,
+ *      and anonymous visitors of `/` to /login (no `next`: the root has
+ *      nothing to return to, app/page.tsx only routes signed-in users, A13).
  *
  * It does NOT look at the role, profile status or must_change_password:
  * those checks need a profiles lookup (service role) and live in
@@ -28,6 +30,15 @@ function isProtected(pathname: string): boolean {
   );
 }
 
+function isRoot(pathname: string): boolean {
+  return pathname === "/";
+}
+
+/** Paths an anonymous visitor is redirected away from. */
+function needsSession(pathname: string): boolean {
+  return isRoot(pathname) || isProtected(pathname);
+}
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -37,7 +48,7 @@ export async function middleware(request: NextRequest) {
     // Misconfigured deployment: fail closed on protected paths, let public
     // paths through (the pages will throw a clear "Missing environment
     // variable" error from lib/auth/session.ts).
-    return isProtected(request.nextUrl.pathname)
+    return needsSession(request.nextUrl.pathname)
       ? NextResponse.redirect(loginRedirect(request), 302)
       : response;
   }
@@ -67,7 +78,7 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user && isProtected(request.nextUrl.pathname)) {
+  if (!user && needsSession(request.nextUrl.pathname)) {
     // 302 (PLAN T07 acceptance) rather than Next's default 307.
     const redirect = NextResponse.redirect(loginRedirect(request), 302);
     // Keep any cookie changes (e.g. clearing an invalid session) on the redirect.
@@ -82,10 +93,10 @@ export async function middleware(request: NextRequest) {
 
 function loginRedirect(request: NextRequest): URL {
   const url = request.nextUrl.clone();
-  const next = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  const { pathname, search } = request.nextUrl;
   url.pathname = "/login";
   url.search = "";
-  url.searchParams.set("next", next);
+  if (!isRoot(pathname)) url.searchParams.set("next", `${pathname}${search}`);
   return url;
 }
 

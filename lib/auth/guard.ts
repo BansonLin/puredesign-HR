@@ -27,8 +27,8 @@ import {
  *
  * Flow of `requireRole`:
  *   no session            → redirect /login (with ?next= when the caller passes it)
- *   session but no profile→ signOut, redirect /login?reason=no_profile
- *   status='left'         → signOut, redirect /login?reason=disabled (A02)
+ *   session but no profile→ signOut (best-effort), redirect /login?reason=no_profile
+ *   status='left'         → signOut (best-effort), redirect /login?reason=disabled (A02)
  *   must_change_password  → redirect /login/change-password (T07 route)
  *   role not in `roles`   → forbidden() → 403 + app/forbidden.tsx (D-13)
  *   status='sample'       → allowed like active (A02; only excluded from
@@ -66,6 +66,23 @@ function loginUrl(params: Record<string, string>): string {
   return query ? `${LOGIN_PATH}?${query}` : LOGIN_PATH;
 }
 
+/** Canonical UUID shape of profiles.id (any casing). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Signing out is best-effort: from a Server Component the cookie store is
+ * read-only (lib/auth/session.ts swallows that) and Supabase may be
+ * unreachable; the redirect that follows must happen either way — the stale
+ * session is replaced by the next successful login (DECISIONS D-21).
+ */
+async function bestEffortSignOut(): Promise<void> {
+  try {
+    await signOut();
+  } catch {
+    // ignored on purpose: the caller redirects right after this
+  }
+}
+
 /**
  * Resolve the signed-in profile and assert its role is one of `roles`.
  * Returns the full profile row for the page to use.
@@ -81,12 +98,12 @@ export async function requireRole(
 
   const profile = await getProfileByAuthId(user.id);
   if (!profile) {
-    await signOut();
+    await bestEffortSignOut();
     redirect(loginUrl({ reason: "no_profile" }));
   }
 
   if (profile.status === "left") {
-    await signOut();
+    await bestEffortSignOut();
     redirect(loginUrl({ reason: "disabled" }));
   }
 
@@ -112,7 +129,9 @@ const NEWCOMER_VIEWER_ROLES: readonly UserRole[] = [
 /**
  * `requireRole` for the newcomer-detail routes (/manager/newcomer/[id],
  * /hr/newcomer/[id], CSV export): the actor must be a viewer role and
- * `canAccessNewcomer(actor, newcomer)` must hold, otherwise 403.
+ * `canAccessNewcomer(actor, newcomer)` must hold, otherwise 403. An id that
+ * is not shaped like a UUID is treated as an unknown newcomer (403) before
+ * any query, so PostgREST never sees it (22P02 would surface as a 500).
  * Returns both profiles so the page does not re-query them.
  */
 export async function requireNewcomerAccess(
@@ -120,6 +139,7 @@ export async function requireNewcomerAccess(
   opts: RequireRoleOptions = {},
 ): Promise<{ actor: Profile; newcomer: Profile }> {
   const actor = await requireRole(NEWCOMER_VIEWER_ROLES, opts);
+  if (!UUID_RE.test(newcomerId)) forbidden();
   const newcomer = await getProfileByAuthId(newcomerId);
   if (!newcomer || !canAccessNewcomer(actor, newcomer)) {
     forbidden();

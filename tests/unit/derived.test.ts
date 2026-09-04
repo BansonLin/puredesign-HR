@@ -185,6 +185,23 @@ describe("alertState (§7 A1, strict > threshold)", () => {
     expect(alertState({ alert: pg, thresholdHours: THRESHOLD, now: CLOCK_0904_1800 })).toBe("overdue");
     expect(alertState({ alert: pg, thresholdHours: THRESHOLD, now: CLOCK_0904_1200 })).toBe("open");
   });
+
+  it("rejects naive strings (no Z / ±HH:mm) and date-only strings, like lib/time", () => {
+    const naive: AlertLike = {
+      status: "open",
+      created_at: "2026-09-03T09:06:00",
+      responded_at: null,
+    };
+    expect(() =>
+      alertState({ alert: naive, thresholdHours: THRESHOLD, now: CLOCK_0904_1800 }),
+    ).toThrow(RangeError);
+    expect(() =>
+      alertState({ alert: HUNG_R2, thresholdHours: THRESHOLD, now: "2026-09-04T18:00:00" }),
+    ).toThrow(RangeError);
+    expect(() =>
+      alertState({ alert: HUNG_R2, thresholdHours: THRESHOLD, now: "2026-09-04" }),
+    ).toThrow(RangeError);
+  });
 });
 
 // ---------------------------------------------------------------------------

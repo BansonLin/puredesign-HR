@@ -119,7 +119,7 @@ const ROWS: readonly Row[] = [
   { id: "4 newcomer", actor: darren, action: "alert:respond_or_weekly", target: darren, expect: false },
   { id: "4 manager same dept", actor: mgrConstruction, action: "alert:respond_or_weekly", target: darren, expect: true, onBehalf: false },
   { id: "4 manager other dept", actor: mgrConstruction, action: "alert:respond_or_weekly", target: yen, expect: false },
-  { id: "4 hr", actor: hr, action: "alert:respond_or_weekly", target: darren, expect: true },
+  { id: "4 hr", actor: hr, action: "alert:respond_or_weekly", target: darren, expect: true, onBehalf: true },
   { id: "4 ceo", actor: ceo, action: "alert:respond_or_weekly", target: darren, expect: false },
   { id: "4 admin", actor: admin, action: "alert:respond_or_weekly", target: darren, expect: true, onBehalf: true },
 

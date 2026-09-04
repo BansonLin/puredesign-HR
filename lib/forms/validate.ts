@@ -22,6 +22,7 @@ import {
   type Slot,
 } from "@/lib/forms/slots";
 import type { RulesSettings } from "@/lib/rules/constants";
+import { isDateString } from "@/lib/time";
 
 export interface PublishContext {
   /** Template the draft belongs to; decides which system / rule slots must be bound. */
@@ -35,17 +36,10 @@ export interface PublishValidation {
   errors: string[];
 }
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const NUMBER_PATTERN = /^-?\d+(\.\d+)?$/;
 
 function label(question: Question): string {
   return `題目「${question.label}」（${question.key}）`;
-}
-
-function isValidCalendarDate(value: string): boolean {
-  if (!DATE_PATTERN.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 /**
@@ -235,7 +229,7 @@ export function validateAnswers(
         if (!(q.options ?? []).includes(value)) errors[q.key] = "請從選項中選擇";
         break;
       case "date":
-        if (!isValidCalendarDate(value)) errors[q.key] = "日期格式須為 YYYY-MM-DD";
+        if (!isDateString(value)) errors[q.key] = "日期格式須為 YYYY-MM-DD";
         break;
       case "number":
         if (!NUMBER_PATTERN.test(value)) errors[q.key] = "請輸入數字";

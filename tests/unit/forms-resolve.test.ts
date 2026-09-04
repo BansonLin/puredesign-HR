@@ -229,6 +229,11 @@ describe("readYesterdayPlan (§6 / §8 昨日計畫)", () => {
     ]);
     expect(plan.top).toBeNull();
     expect(readYesterdayPlan(log(2).answers, null)).toEqual(EMPTY_YESTERDAY_PLAN);
+    // a fresh object per call (never the frozen constant), items not shared
+    expect(plan).not.toBe(EMPTY_YESTERDAY_PLAN);
+    expect(readYesterdayPlan(null, V1)).not.toBe(plan);
+    expect(new Set(plan.items).size).toBe(3);
+    expect(Object.isFrozen(EMPTY_YESTERDAY_PLAN.items[0])).toBe(true);
   });
 
   it("cross-version: a v2 log (tomorrow_1, disabled p1_text, swapped order) reads the same as v1", () => {

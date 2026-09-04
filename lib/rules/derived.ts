@@ -19,6 +19,7 @@ import {
   calendarDaysBetween,
   isPastCutoff,
   taipeiDateOf,
+  toInstant,
   type DateString,
   type Instant,
 } from "@/lib/time";
@@ -28,12 +29,14 @@ export const HR_NEED_HELP_WINDOW_DAYS = 7;
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 
+/**
+ * Epoch milliseconds of `instant`, through lib/time's gate: a string must be
+ * an ISO date-time ending in `Z` / `±HH:mm` (PostgREST's `+00:00` included);
+ * a date-only or naive string throws `RangeError` instead of being read in
+ * the process time zone.
+ */
 function toMillis(instant: Instant): number {
-  const ms = (instant instanceof Date ? instant : new Date(instant)).getTime();
-  if (Number.isNaN(ms)) {
-    throw new RangeError(`Invalid instant: ${String(instant)}`);
-  }
-  return ms;
+  return toInstant(instant).getTime();
 }
 
 // ---------------------------------------------------------------------------

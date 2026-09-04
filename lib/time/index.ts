@@ -52,7 +52,13 @@ export function appTimeZone(): string {
   return tz && tz.trim() !== "" ? tz.trim() : DEFAULT_TIMEZONE;
 }
 
-function toInstant(value: Instant): Date {
+/**
+ * `value` as a `Date`. Strings must be ISO 8601 date-times with an explicit
+ * `Z` / `±HH:mm` offset (see `Instant`); a date-only string or a naive
+ * date-time throws `RangeError`. Exported so other modules (`lib/rules`)
+ * apply exactly this gate instead of calling `new Date(string)` themselves.
+ */
+export function toInstant(value: Instant): Date {
   if (typeof value === "string") {
     if (DATE_RE.test(value)) {
       throw new RangeError(
@@ -94,6 +100,20 @@ function parseDateString(value: DateString): {
     throw new RangeError(`Invalid calendar date: ${value}`);
   }
   return { year, month, day };
+}
+
+/**
+ * `true` when `value` is a real calendar date written as `YYYY-MM-DD`
+ * (`2026-02-30`, `2026-9-4` and `2026-08-31T00:00:00Z` are all `false`).
+ * Form validation uses this so date checks stay in lib/time (PLAN K4).
+ */
+export function isDateString(value: string): boolean {
+  try {
+    parseDateString(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseTimeString(value: string): { hours: number; minutes: number } {

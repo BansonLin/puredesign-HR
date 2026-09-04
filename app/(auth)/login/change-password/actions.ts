@@ -10,7 +10,7 @@ import { getProfileByAuthId } from "@/lib/db/queries/profiles";
 
 const CHANGE_PASSWORD_PATH = "/login/change-password";
 
-export type PasswordError = "weak" | "mismatch" | "same" | "failed";
+export type PasswordError = "weak" | "mismatch" | "same" | "failed" | "flag_failed";
 
 function field(formData: FormData, name: string): string {
   const value = formData.get(name);
@@ -28,6 +28,12 @@ function fail(code: PasswordError): never {
  * confirm matches → Supabase updateUser (its `same_password` /
  * `weak_password` codes are mapped to 繁中 messages by the page) → clear
  * profiles.must_change_password with the service client → homeFor(role).
+ *
+ * The two steps after updateUser are not atomic. If clearing the flag fails
+ * the password is already changed, so the user is told so (`flag_failed`);
+ * on the next visit they are sent here again and must pick another new
+ * password. `same_password` is never treated as "already changed": that would
+ * let a newcomer re-enter the initial password and bypass the forced change.
  */
 export async function changePassword(formData: FormData): Promise<void> {
   const user = await getSessionUser();
@@ -55,11 +61,16 @@ export async function changePassword(formData: FormData): Promise<void> {
     fail("failed");
   }
 
-  await getAdminClient()
-    .from("profiles")
-    .update({ must_change_password: false })
-    .eq("id", profile.id)
-    .throwOnError();
+  try {
+    await getAdminClient()
+      .from("profiles")
+      .update({ must_change_password: false })
+      .eq("id", profile.id)
+      .throwOnError();
+  } catch {
+    // redirect() throws NEXT_REDIRECT, so it must stay outside the try body
+    fail("flag_failed");
+  }
 
   redirect(homeFor(profile.role));
 }

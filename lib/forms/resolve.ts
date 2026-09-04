@@ -98,23 +98,41 @@ export interface YesterdayPlan {
   support: { need: string | null; detail: string | null };
 }
 
-const EMPTY_ITEM: PlanItem = { text: null, expect: null };
+/** A fresh empty plan: three distinct item objects, safe for callers to mutate. */
+function emptyYesterdayPlan(): YesterdayPlan {
+  return {
+    items: [
+      { text: null, expect: null },
+      { text: null, expect: null },
+      { text: null, expect: null },
+    ],
+    top: null,
+    support: { need: null, detail: null },
+  };
+}
 
-export const EMPTY_YESTERDAY_PLAN: YesterdayPlan = {
-  items: [EMPTY_ITEM, EMPTY_ITEM, EMPTY_ITEM],
-  top: null,
-  support: { need: null, detail: null },
-};
+/**
+ * Deep-frozen reference value of the empty plan (for comparisons);
+ * `readYesterdayPlan` never returns this object.
+ */
+export const EMPTY_YESTERDAY_PLAN: Readonly<YesterdayPlan> = (() => {
+  const plan = emptyYesterdayPlan();
+  for (const item of plan.items) Object.freeze(item);
+  Object.freeze(plan.items);
+  Object.freeze(plan.support);
+  return Object.freeze(plan);
+})();
 
 /**
  * "昨日計畫" of the previous log (§6): read by slot so a log written with an
- * older version resolves the same way. `null` previous log → all empty.
+ * older version resolves the same way. `null` previous log / version → a
+ * fresh empty plan (a new object on every call).
  */
 export function readYesterdayPlan(
   previousAnswers: RawAnswers,
   previousQuestions: readonly Question[] | null | undefined,
 ): YesterdayPlan {
-  if (!previousAnswers || !previousQuestions) return EMPTY_YESTERDAY_PLAN;
+  if (!previousAnswers || !previousQuestions) return emptyYesterdayPlan();
   const slots = bySlot(previousQuestions, previousAnswers);
   const item = (i: 1 | 2 | 3): PlanItem => ({
     text: slots[`plan.item${i}.text`] ?? null,

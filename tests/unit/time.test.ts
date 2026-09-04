@@ -8,6 +8,7 @@ import {
   endOfTaipeiDay,
   formatDate,
   formatTaipei,
+  isDateString,
   isFriday,
   isPastCutoff,
   taipeiDateOf,
@@ -179,5 +180,25 @@ describe("formatTaipei / formatDate", () => {
   it("formats date strings without a time-zone shift", () => {
     expect(formatDate("2026-09-11")).toBe("2026/09/11");
     expect(formatDate("2026-09-11", "M/d")).toBe("9/11");
+  });
+});
+
+describe("isDateString", () => {
+  it("accepts real YYYY-MM-DD dates and rejects everything else", () => {
+    expect(isDateString("2026-08-31")).toBe(true);
+    expect(isDateString("2024-02-29")).toBe(true);
+    for (const value of [
+      "2026/08/31",
+      "31-08-2026",
+      "2026-9-4",
+      "2026-13-01",
+      "2026-02-30",
+      "2023-02-29",
+      "2026-08-31T00:00:00Z",
+      "today",
+      "",
+    ]) {
+      expect(isDateString(value), value).toBe(false);
+    }
   });
 });

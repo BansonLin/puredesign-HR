@@ -20,6 +20,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   mismatch: "兩次輸入的密碼不一致，請重新輸入。",
   same: "新密碼不可與舊密碼相同。",
   failed: "密碼更新失敗，請稍後再試；若持續發生請聯絡 HR。",
+  flag_failed: "密碼可能已更新，請重新登入後再試。",
 };
 
 /**
