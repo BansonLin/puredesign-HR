@@ -3,7 +3,7 @@
 | 項目 | 內容 |
 |---|---|
 | 日期 | 2026-09-03 |
-| 狀態 | **Phase 1 實作完成、驗收未結案**（2026-09-04）：T01–T30 的逐項交付狀態見 3.1 任務表的標記與第 7 節。CI（PR #1，run #16，head `9f701bc`）五類 job 全綠，`supabase db reset`／`db:seed --verify`／17 條 Playwright 都在 CI 跑過；**T09 完全未執行**，另有 B1／B5／B6／B7／B8／B9 六項驗收未結案，要等 Banson 給 staging 金鑰與 Vercel 專案（7.2／7.3）才能結案 |
+| 狀態 | **Phase 1 實作完成、驗收未結案**（2026-09-04）：T01–T30 的逐項交付狀態見 3.1 任務表的標記與第 7 節。CI（PR #1，run #16，head `9f701bc`）七個 job 全綠——`supabase db reset` 從空庫、`pnpm db:seed --verify`、17 條 Playwright（16 passed／1 永久 skip）都在 CI 跑過；但 **T09 完全未執行**，另有 B1／B5／B6／B7／B8／B9 六項驗收未結案，要等 Banson 給 staging 金鑰與 Vercel 專案（7.2／7.3）才能結案 |
 | 來源 | 本文件由 kit.md「Prompt 0」產出；Banson 回覆「核准 Phase 1」之前，不安裝依賴、不建立 `app/`、`lib/`、`supabase/` 下任何檔案、不執行任何寫入 Supabase 的指令 |
 | 已鎖定（不再提問） | C-1：Next.js 15＋Supabase＋Vercel；帳號密碼登入（HR 建）；repo private；HR＝產品負責人、Banson＝維護者；Google Sheet 過渡版 9/11 照跑；費用上限（Supabase Pro US$25／Vercel Pro US$20／Anthropic < US$10 皆為示意） |
 
@@ -135,7 +135,7 @@
 | T27 | ✅ Playwright 煙霧：主流程（R2 路徑）、未授權存取、首次改密碼 ＋ CI e2e job（本機堆疊） | `tests/e2e/global-setup.ts`、`tests/e2e/fixtures/accounts.ts`、`tests/e2e/flow.spec.ts`、`tests/e2e/authz.spec.ts`、`tests/e2e/first-login.spec.ts`、`playwright.config.ts`、`.github/workflows/ci.yml` | T03、T09、T16、T20、T21、T22、T26 | 4 | `playwright.config.ts`：viewport 375×812、`isMobile`、`webServer` 為 `next build && next start`、`workers=1`。`global-setup`：以 service role 刪除四位 seed 新人 `log_date＝台北今日` 的 submissions、其 alerts、指向它們的回應，再跑 `pnpm db:seed`（§11 資料不變）。`flow.spec`（Target 7，與執行日期無關）：洪湘庭登入 → `/me/today` 結算三項選「昨日無此項」、`blocker='有，尚未回報'`＋detail、`p1` 必填 → 「已儲存」 → 信義總監登入 `/manager` 洪湘庭卡片 open 預警數 = 2（seed 既有的 9/3 R2 永不回應、仍 open 且已逾時，加上本次提交的 R2；不斷言逾時數）→ 時間軸今日列出現「卡點」且狀態為待回應 → 回應「已處理」＋一句話（計時 ≤ 20 秒） → HR 登入 `/hr` 待處理預警不含該筆、複製摘要文字含「洪湘庭」、`/hr/newcomer/[洪湘庭]` 今日列已回應。`authz.spec`：未登入 `/me/today` → `/login`；洪湘庭開 `/hr` → 403；信義總監開 `/manager/newcomer/{Darren}` → 403；洪湘庭 GET `/api/export/newcomer/{Darren}` → 403；ceo 開 `/ceo` main 內 button 0、開 `/hr` → 403；四種角色（newcomer、manager、hr、ceo）各至少一條路徑（§3）。`first-login.spec`：`e2e_fresh` 登入 → 導改密碼 → 改完落 `/me/today` → teardown 以 service role 還原旗標與密碼。CI e2e job 在 lint／typecheck／unit／db 之後，對 e2e job 自建的本機堆疊執行（步驟同 T03 `db` job），失敗上傳 trace；本機與 CI 連跑兩次皆綠。e2e 連續失敗兩次即停下回報。 | 7, 1, 3 |
 | T28 | ⏳(B5) 375px 全頁稽核（scrollWidth、44px 斷言）＋ 自動截圖 ＋ v1 三型渲染驗證 | `tests/e2e/mobile.spec.ts` | T27、T13 | 2 | `mobile.spec` 以四角色逐頁開 `/login`、`/me/today`、`/me/history`、`/manager`、`/manager/newcomer/[id]`（抽屜開啟）、`/manager/weekly`、`/hr`、`/hr/newcomer/[id]`、`/ceo`：斷言 `document.documentElement.scrollWidth ≤ 375`，每個 `[data-primary]` 按鈕 `boundingBox().height ≥ 44`；每頁存一張截圖到 `test-results/`（gitignored，供 PR）。渲染驗證只用正式頁面與 active 版本：`/me/today` 斷言 radio 群組（single_select）與文字輸入（short_text）存在，`/manager/weekly` 斷言 `input[type=date]`（date）存在；六型完整驗證在 T13 的 `forms-renderer.test.ts`，不在 `/me/today` 加 preview 開關。 | 6, 9 |
 | T29 | ✅ `docs/RUNBOOK.md`（HR 操作手冊）＋ `docs/DECISIONS.md` 補齊 Phase 1 決定 | `docs/RUNBOOK.md`、`docs/DECISIONS.md`、`README.md` | T20、T16、T22 | 2.5 | RUNBOOK 章節：(1) 登入與首次改密碼（密碼規則）、忘記密碼；(2) HR 每日：`/hr` 各區塊怎麼讀（缺交 vs 未到時＝18:00 cutoff、逾時＝24h、HR 介入清單兩種來源與 7 日視窗）、複製一行摘要貼 LINE 群；(3) Phase 1 建帳號兩條路（Target 8）：A. 在 `supabase/seed/fixtures/fixture.ts` 加人後 `pnpm db:seed`（自動建 auth 使用者、profile、三筆 milestones）；B. Supabase 後台 Auth 建 `{username}@pure.internal`（email confirm 勾選）→ `profiles` 補一列（欄位清單）→ 跑 `pnpm db:seed --milestones-only` 補三筆節點；(4) 重設密碼與把 `must_change_password` 設回 true；停用（`status=left`，登入會顯示「帳號已停用」）；(5) 主管路徑：卡片 → 時間軸 → 回應 → 週五週回饋；HR 代填在 `/manager`；(6) Supabase 專案必要設定（關 Confirm email、關公開 signup、密碼最短 8、refresh token）、staging／production、免費專案閒置暫停時的手動喚醒；(7) 驗收前 `--anchor` 平移示範資料；重跑 seed 只重設 `e2e_fresh` 的密碼與 `must_change_password`，示範帳號密碼不動，要重設需加 `--reset-passwords`；(8) 已知限制（Phase 2 才有 /admin，Phase 3 才有通知與節點）。由 HR 照 (2)(3) 實際操作一次不需工程師即通過。DECISIONS 每列日期／決定／理由，至少含：§12 例外檔（含 `app/(auth)/layout.tsx`、`app/(front)/layout.tsx`、`README.md`）；guard 拆 `policy.ts`（純函式）／`guard.ts`（`server-only`）；submissions 以自然鍵 select 後 insert／update、不用 supabase-js upsert（partial unique index 無法做 ON CONFLICT 推斷），alerts 用 `on conflict (submission_id, rule_key)`；shadcn utils 放 `components/ui`；seed 為 TS 腳本走 Auth admin API、以 `tsx --conditions=react-server` 執行（5.1）；`SEED_PASSWORD`／`SEED_ALLOWED_PROJECT_REF`；ceo 與 `e2e_fresh`（`status='sample'`，可登入、不進母體）示範帳號；示範帳號 `must_change_password=false`；CI 用本機堆疊；`alerts.created_at＝submitted_at`；reconcile 狀態機（A10）；同部門以 `department_id`；on_behalf 由角色推導、Phase 2 再議欄位；主管可回應無預警日誌；缺交率分母含今日條件；cutoff ≥、A1 >；30 天 session 作法與未驗證項；milestones 應用層建立；zod／date-fns 選擇；`--anchor` 只准非 CI。 | 8 |
-| T30 | ⏳(B1) §13 完成定義總驗收：staging 最終驗證、PR 描述（測試方式、截圖、staging URL、四組帳號） | `docs/PLAN.md`（勾選）、`docs/DECISIONS.md`、`.env.example` | T25、T28、T29 | 2 | CI lint／typecheck／unit（三 TZ）／db／e2e 全綠；`supabase db reset` 從空庫無錯；`pnpm db:seed --verify` 兩次一致（milestones 15、submissions 11、alerts 2）；staging `/hr` 今日交件應交數為 4（`e2e_fresh` 為 `sample` 不計，A02）；`grep -rho "process.env.[A-Z_]*" app lib supabase tests middleware.ts | sort -u` 每個變數都在 `.env.example`；DECISIONS 已更新。用手機 LINE 內建瀏覽器在 staging preview 走完 C-3 五步（新人填日誌 → 主管看到預警並回應 → HR 看到已回應與複製摘要 → CEO 無按鈕 → 新人開 `/hr` 被擋）。PR 描述含：測試方式、T28 的 9 張 375px 截圖、T09 的 Auth 設定截圖與 session 驗證結果、staging URL、四組測試帳號（`hung_hsiangting`／`mgr_xinyi`／`hr`／`ceo`；密碼另行非 git 管道交付）、Prompt 1 Checkpoints 的檔案變更總表與測試摘要；PLAN.md §3 逐項勾選。PR 開給人審，不合併、不推 main（§0）。 | 9 |
+| T30 | ⏳(B1、B5、B7、B8) §13 完成定義總驗收：staging 最終驗證、PR 描述（測試方式、截圖、staging URL、四組帳號） | `docs/PLAN.md`（勾選）、`docs/DECISIONS.md`、`.env.example` | T25、T28、T29 | 2 | CI lint／typecheck／unit（三 TZ）／db／e2e 全綠；`supabase db reset` 從空庫無錯；`pnpm db:seed --verify` 兩次一致（milestones 15、submissions 11、alerts 2）；staging `/hr` 今日交件應交數為 4（`e2e_fresh` 為 `sample` 不計，A02）；`grep -rho "process.env.[A-Z_]*" app lib supabase tests middleware.ts | sort -u` 每個變數都在 `.env.example`；DECISIONS 已更新。用手機 LINE 內建瀏覽器在 staging preview 走完 C-3 五步（新人填日誌 → 主管看到預警並回應 → HR 看到已回應與複製摘要 → CEO 無按鈕 → 新人開 `/hr` 被擋）。PR 描述含：測試方式、T28 的 9 張 375px 截圖、T09 的 Auth 設定截圖與 session 驗證結果、staging URL、四組測試帳號（`hung_hsiangting`／`mgr_xinyi`／`hr`／`ceo`；密碼另行非 git 管道交付）、Prompt 1 Checkpoints 的檔案變更總表與測試摘要；PLAN.md §3 逐項勾選。PR 開給人審，不合併、不推 main（§0）。 | 9 |
 
 **估時合計：95 小時**（至 T20「第一次可在手機示範」約 66.5 小時）。
 
@@ -855,46 +855,61 @@ lib/auth/policy.ts    can() / canAccessNewcomer() / canRespond()：純函式，�
 
 ## 7. Phase 1 交付狀態（T30 於 2026-09-04 回填）
 
-本節是 §13「完成定義」的逐條結算。原則：**只有在本容器實際跑過指令、或 repo 內可直接查到的事實才記為已完成**；其餘一律列入 7.2 blocked，不在 PR 描述中宣稱通過（D-68）。
+本節是 §13「完成定義」的逐條結算。原則：**只有真的跑過的指令才記為已完成**，並標明跑在哪裡（D-68、D-70）：
+
+- `[本機]` = 本容器。**沒有 Docker daemon、沒有 Supabase 金鑰**，所以沒有 PostgREST／GoTrue：任何需要真登入或真資料庫的驗收都跑不了，只跑得動純函式、建置、本機 PostgreSQL 16 的 SQL，與未登入頁面。
+- `[CI]` = GitHub Actions **CI run #16**（PR #1，head `9f701bc`，2026-09-04 15:28–15:35 UTC，七個 job 全部 `success`）：<https://github.com/BansonLin/puredesign-HR/actions/runs/33889645588>。CI runner 有 Docker，所以 `supabase start`／`db reset`／`db:seed --verify`／完整 Playwright 都在那裡跑過。
+
+**引用 CI 結果必須綁 commit**（D-70）。run #16 覆蓋的是 `9f701bc`。其後分支多了一個 commit `91fcdc8`（把 e2e 的 artifact 上傳從 `if: failure()` 改成 `if: always()`，好讓綠燈的 run 也留下 375px 截圖；其餘為 `docs/` 與 `.env.example` 文字），**未動 `app/`、`lib/`、`supabase/`、`tests/`**——`git show --stat 91fcdc8` 可查——所以 run #16 對現行程式碼與測試仍然有效。`91fcdc8` 觸發的 **run #17 在本節寫成時（2026-09-04 16:24 UTC）仍 `in_progress`，結果未知，不得引用**：<https://github.com/BansonLin/puredesign-HR/actions/runs/33894672568>。**每個新 commit 都要重新看 Actions**。
 
 ### 7.1 已完成（實測通過）
 
-| §13 條目 | 指令 | 結果 |
-|---|---|---|
-| lint 綠 | `pnpm lint` | exit 0，無輸出 |
-| typecheck 綠 | `pnpm typecheck` | exit 0，無輸出 |
-| unit 綠（三時區） | `TZ=UTC pnpm test`／`TZ=Asia/Taipei pnpm test`／`TZ=America/Los_Angeles pnpm test` | 三次皆 `Test Files 34 passed (34)`、`Tests 648 passed (648)` |
-| 建置綠 | `set -a; . ./.env.example; set +a; pnpm build` | exit 0，13 個路由 ＋ middleware 93.1 kB |
-| migrations 可從空庫跑到最新 | `bash …/scratchpad/pg/local-pg.sh reset`（本機 PostgreSQL 16，逐檔 `psql -v ON_ERROR_STOP=1`） | 10 個 migration 全數成功；九表、`rowsecurity` 皆 `t`、`pg_policies` 0 列、8 個 enum |
-| seed 防呆可證 | `SEED_PASSWORD= pnpm db:seed` | exit 1，訊息「seed 中止：SEED_PASSWORD 未設定。請在 .env.local（或 CI secret）提供 seed 帳號密碼後重跑（PLAN A03）」 |
-| `.env.example` 列齊 | `grep -rho "process\.env\.[A-Z_]*" app lib supabase tests middleware.ts \| sort -u` | 8 個名字：應用自有的 7 個全部在 `.env.example`（§4 五個＋`SEED_PASSWORD`、`SEED_ALLOWED_PROJECT_REF`）；另外的 `NODE_ENV`、`CI` 由工具鏈提供，以檔尾註解列出且刻意不給值（D-69）。以 `process.env[name]` 間接讀取的 `SUPABASE_SERVICE_ROLE_KEY`（`lib/db/admin.ts`、`tests/e2e/global-setup.ts`）已人工核對，同樣在檔內 |
-| guard 覆蓋 | `pnpm exec vitest run tests/unit/guard-coverage.test.ts` | 3 測試全綠。另人工列舉 `app/**` 全部 17 個 `page.tsx`／`actions.ts`／`route.ts`：13 個同時 import `@/lib/auth/guard` 並呼叫 `requireRole(`／`requireNewcomerAccess(`／`can(`；4 個為白名單（`app/page.tsx` 依角色導向、`app/(auth)/login/{page,actions}`、`app/(auth)/login/change-password/actions.ts`），無漏網 |
-| DECISIONS 已更新 | `grep -o "^\| D-[0-9]*" docs/DECISIONS.md` | D-01–D-69 共 69 列，編號連續、無重複、表身無空白列；本任務追加 D-68（§13 驗收分兩類）、D-69（`.env.example` 完整性判準） |
-| 未登入路徑實測 | `curl -D - http://localhost:3000/me/today`；`pnpm exec playwright test mobile.spec.ts:87` | `302` → `location: /login?next=%2Fme%2Ftoday`；`/login` 375px 稽核 passed，產出 `test-results/mobile/01-login.png` |
-
-### 7.2 Blocked（本容器無法驗證，缺 Docker／Supabase staging 金鑰）
-
-| # | 項目 | 卡在哪 | 解除後怎麼驗 |
+| §13 條目 | 地點 | 指令 | 結果 |
 |---|---|---|---|
-| B1 | T09 首次 staging 部署（Vercel preview、Supabase Auth 設定、手機實測） | 無 Vercel 專案、無 Supabase staging 專案 | 依 RUNBOOK 8.1／8.3 建專案 → `supabase db push` → 設 Vercel Preview 五個變數 → 開 preview URL |
-| B2 | `supabase start` ／ `supabase db reset` 從空庫 | 容器無 Docker daemon（本節以本機 PostgreSQL 16 替代，只證得了 SQL 本身） | 有 Docker 的機器跑 `pnpm db:reset`，應與 7.1 同樣得九表／RLS／0 policies |
-| B3 | staging seed 與 `pnpm db:seed --verify` 兩次一致 | seed 走 Supabase Auth admin API 建帳號，需 service role key | 設 `SEED_PASSWORD`、`SEED_ALLOWED_PROJECT_REF` 後連跑兩次，兩次都應回報 milestones 15／submissions 11／alerts 2 |
-| B4 | Playwright 需登入的 15 條（flow／authz 五條／first-login／rls 三條／mobile 四條） | 無 PostgREST／GoTrue，`global-setup` 會自行 skip | `supabase start` 後 `pnpm test:e2e`，或直接看 CI 的 e2e job |
-| B5 | T28 的 9 張 375px 截圖（`01-login.png` 已有，其餘 8 張缺） | 同 B4 | `pnpm exec playwright test mobile.spec.ts`，截圖固定落在 `test-results/mobile/` |
-| B6 | 30 天 session 實機驗證 | 需真 GoTrue ＋ 手機 | T09 驗收方式：縮短 JWT expiry 觀察 middleware 刷新（K3） |
-| B7 | staging `/hr` 今日交件應交數為 4（`e2e_fresh` 為 `sample` 不計，A02） | 需 staging ＋ seed | 登入 `hr` 開 `/hr`，今日交件區塊分母應為 4 |
-| B8 | 手機（LINE 內建瀏覽器）走完 C-3 五步 | 需 staging URL | RUNBOOK 第 2 節逐步操作 |
+| lint 綠 | 本機／CI | `pnpm lint` | exit 0，無輸出；CI `lint` job `success` |
+| typecheck 綠 | 本機／CI | `pnpm typecheck` | exit 0，無輸出；CI `typecheck` job `success` |
+| unit 綠（三時區） | 本機／CI | `TZ=UTC pnpm test`／`TZ=Asia/Taipei pnpm test`／`TZ=America/Los_Angeles pnpm test` | 三次皆 `Test Files 34 passed (34)`、`Tests 648 passed (648)`；CI `unit (UTC)`／`unit (Asia/Taipei)`／`unit (America/Los_Angeles)` 三個 job `success` |
+| 建置綠 | 本機 | `set -a; . ./.env.example; set +a; pnpm build` | exit 0，13 個路由 ＋ middleware 93.1 kB |
+| migrations 可從空庫跑到最新 | 本機 | `bash …/scratchpad/pg/local-pg.sh reset`（本機 PostgreSQL 16，逐檔 `psql -v ON_ERROR_STOP=1`） | 10 個 migration 全數成功；九表、`rowsecurity` 皆 `t`、`pg_policies` 0 列、8 個 enum |
+| `supabase db reset` 從**空庫**跑到最新（§13 原文） | CI | `db` job：`supabase start` → `supabase db reset` → 查 `pg_tables`／`relrowsecurity`／`pg_policies` | 步驟 8–10 全 `success`（原 B2 解除） |
+| 索引與 FK 以 psql 實測（T02） | 本機 | 對 local-pg 逐條 insert／delete | 六組重複鍵全被擋：`submissions_daily_user_date_uidx`、`submissions_weekly_uidx`、`alerts_submission_id_rule_key_key`、`form_versions_one_published_idx`、`form_versions_one_draft_idx`、`form_versions_template_id_version_no_key`、`milestones_user_id_kind_key`；軟刪除（含 `delete_reason`）後同人同日可再建一筆；刪未被指向的 draft 成功；刪 active 版本後 `active_version_id` 變 null 且 `form_templates` 列仍在 |
+| seed 防呆可證 | 本機 | `SEED_PASSWORD= pnpm db:seed` | exit 1，訊息「seed 中止：SEED_PASSWORD 未設定。請在 .env.local（或 CI secret）提供 seed 帳號密碼後重跑（PLAN A03）」 |
+| seed 可重跑（idempotent） | CI | `e2e` job 步驟 12 `pnpm db:seed --verify`（連跑兩次比對各表筆數與 `EXPECTED_ROW_COUNTS.full`），其後 `global-setup` 再跑第三次 | `--verify` 步驟 `success`；第三次的輸出為「submissions（newcomer_daily）：新增 0、既有 8」「manager_response：新增 0、既有 2」「weekly_feedback：新增 0、既有 1」「milestones：upsert 15」「alerts 與預期一致：yen_yaling R1 responded、hung_hsiangting R2 open」（原 B3 解除） |
+| Playwright 17 條 | CI | `e2e` job 步驟 14 `pnpm exec playwright test`（先 `supabase start` → `db reset` → `db:seed --verify`） | `Running 17 tests using 1 worker` → `1 skipped`（`placeholder.spec.ts`，永久 skip）、**`16 passed (57.1s)`**：flow 1／authz 6／first-login 1／rls 3／mobile 5 全過（原 B4 解除） |
+| `.env.example` 列齊 | 本機 | `grep -rho "process\.env\.[A-Z_]*" app lib supabase tests middleware.ts \| sort -u` | 8 個名字：應用自有的 7 個全部在 `.env.example`（§4 五個＋`SEED_PASSWORD`、`SEED_ALLOWED_PROJECT_REF`）；另外的 `NODE_ENV`、`CI` 由工具鏈提供，以檔尾註解列出且刻意不給值（D-69）。以 `process.env[name]` 間接讀取的 `SUPABASE_SERVICE_ROLE_KEY`（`lib/db/admin.ts`、`tests/e2e/global-setup.ts`）已人工核對，同樣在檔內 |
+| guard 覆蓋 | 本機 | `pnpm exec vitest run tests/unit/guard-coverage.test.ts` | 3 測試全綠。另人工列舉 `app/**` 全部 17 個 `page.tsx`／`actions.ts`／`route.ts`：13 個同時 import `@/lib/auth/guard` 並呼叫 `requireRole(`／`requireNewcomerAccess(`／`can(`；4 個為白名單（`app/page.tsx` 依角色導向、`app/(auth)/login/{page,actions}`、`app/(auth)/login/change-password/actions.ts`），無漏網 |
+| DECISIONS 已更新 | 本機 | `grep -o "^\| D-[0-9]*" docs/DECISIONS.md` | D-01–D-70 共 70 列，編號連續、無重複、表身無空白列；本任務追加 D-68（§13 驗收分兩類）、D-69（`.env.example` 完整性判準）、D-70（CI 與本容器兩種證據地點） |
+| 未登入路徑實測 | 本機 | `curl -D - http://localhost:3000/me/today`；`pnpm exec playwright test mobile.spec.ts:87` | `302` → `location: /login?next=%2Fme%2Ftoday`；`/login` 375px 稽核 passed，產出 `test-results/mobile/01-login.png` |
+
+### 7.2 Blocked（仍未驗收，缺 Supabase staging 金鑰／Vercel 專案／實機）
+
+編號沿用先前版本：**原 B2（`supabase db reset` 從空庫）、B3（seed `--verify` 兩次一致）、B4（需登入的 15 條 e2e）已由 CI run #16 解除**，證據見 7.1，故不再列於下表。
+
+B4 的 15 條在先前版本被拆錯過，正確拆解是：**flow 1／authz 6／first-login 1／rls 3／mobile（已登入）4 ＝ 15**；另有 `mobile.spec.ts:87`（未登入，本容器也跑得動）與 `placeholder.spec.ts`（永久 skip、不計覆蓋）各 1 條，`pnpm exec playwright test --list` 合計 `Total: 17 tests in 6 files`。注意 `authz.spec.ts:25`（「未登入開 /me/today → 導向 /login」）雖然邏輯上不需登入，仍在 `test.skip(!hasSupabaseEnv())` 的 describe 內，所以本容器跑不到它，只能靠 `curl` 佐證。
+
+剩下的六項都還沒有任何一次實測。
+
+| # | 項目 | 卡在哪 | 對應 3.1 仍未完成驗收的列 | 解除後怎麼驗 |
+|---|---|---|---|---|
+| B1 | T09 首次 staging 部署（Vercel preview、Supabase Auth 設定）；staging `supabase db push`；staging seed；「以 Darren 在 staging 實填 §11 9/3」 | 無 Vercel 專案、無 Supabase staging 專案／金鑰 | **T09**（整列未執行）、**T02**（只差 staging `db push`）、**T15**（只差 staging 實填）、**T30**（只差 staging 最終驗證與 PR 截圖） | 依 RUNBOOK 8.1／8.3 建專案 → `supabase db push` → `pnpm db:seed` → 設 Vercel Preview 五個變數 → 開 preview URL |
+| B5 | T28 的 **10 張** 375px 截圖（`01-login`、`02-me-today`、`03-me-history`、`04-manager`、`05-manager-newcomer`、`05a-manager-newcomer-drawer`、`06-manager-weekly`、`07-hr`、`08-hr-newcomer`、`09-ceo`）——本容器只有 `01-login.png`，**其餘 9 張缺** | 斷言本身已在 CI run #16 通過，但當時 artifact 只在失敗時上傳，綠燈的 run 把截圖丟掉了；本容器無 Supabase 堆疊，跑不出另外 9 張。`91fcdc8` 已把該步驟改成 `if: always()`，但那次的 run #17 尚未跑完（見本節開頭），檔案還沒真的拿到 | **T28**、**T30**（PR 描述要附截圖） | 等 run #17（或之後任何一次綠燈 e2e）跑完，從該 run 的 `playwright-traces` artifact 下載 `test-results/mobile/` 的 10 張；或在有 Docker 的機器 `supabase start` 後跑 `pnpm exec playwright test mobile.spec.ts`，10 張固定落在 `test-results/mobile/` |
+| B6 | 30 天 session 實機驗證 | 需真 GoTrue ＋ 手機；30 天本身等不到 | **T09**（該列驗收條件中的「30 天 session 驗證法」；T07 任務名雖有「30 天 session」，其驗收欄未列此條） | T09 驗收方式：把 staging JWT expiry 暫調 5 分鐘 → 閒置 10 分鐘仍在線 → 調回（D-64／K3） |
+| B7 | staging `/hr` 今日交件應交數為 4（`e2e_fresh` 為 `sample` 不計，A02） | 需 staging ＋ seed | **T30**（該列驗收條件的第四句；T20／T24 的驗收欄未列此條） | 登入 `hr` 開 `/hr`，今日交件區塊分母應為 4 |
+| B8 | 手機（LINE 內建瀏覽器）走完 C-3 五步；「完成並推上分支後可用手機走 C-3 前三步與第五步」 | 需 staging URL ＋ 實機 | **T20**、**T30** | RUNBOOK 第 2 節逐步操作 |
+| B9 | 兩句驗收條件**沒有被任何一層測試覆蓋**（不是環境問題，是覆蓋缺口）：(a) T07「`status='left'` 登入 → signOut 並導 `/login?reason=disabled`」——`tests/unit/**` 與 `tests/e2e/**` 都沒有這條；(b) T18「信義總監回應洪湘庭『需 HR 協助』→ R2 responded 並進 HR 介入清單」——`flow.spec.ts` 走的是「已處理」，只斷言待處理預警不含該筆，沒有走「需 HR 協助」也沒有斷言 HR 介入清單 | 要補測試（Phase 1 的 T30 不得動 `tests/**`，故列為缺口而非修掉） | **T07**、**T18** | 補一條 e2e：把某帳號改 `status='left'` 後登入；`flow.spec` 或新 spec 選「需 HR 協助」並斷言 `/hr` 的 HR 介入清單出現該筆 |
 
 ### 7.3 Banson 要提供什麼才能解除
 
 | 要什麼 | 用途 | 解除哪幾項 |
 |---|---|---|
-| Supabase **staging** 專案 URL（`https://<ref>.supabase.co`） | `NEXT_PUBLIC_SUPABASE_URL`、`SEED_ALLOWED_PROJECT_REF` | B1、B3、B7 |
-| 該專案的 **anon key** | `NEXT_PUBLIC_SUPABASE_ANON_KEY`（登入頁與 RLS 測試） | B1、B4、B7 |
-| 該專案的 **service role key** | `SUPABASE_SERVICE_ROLE_KEY`（伺服器端資料存取與 seed；絕不進 git） | B1、B3、B7 |
+| Supabase **staging** 專案 URL（`https://<ref>.supabase.co`） | `NEXT_PUBLIC_SUPABASE_URL`、`SEED_ALLOWED_PROJECT_REF` | B1、B7 |
+| 該專案的 **anon key** | `NEXT_PUBLIC_SUPABASE_ANON_KEY`（登入頁與 RLS 測試） | B1、B7 |
+| 該專案的 **service role key** | `SUPABASE_SERVICE_ROLE_KEY`（伺服器端資料存取與 seed；絕不進 git） | B1、B7 |
 | **Vercel 專案**（連到本 repo，production branch 設 `main`，本次不推 main） | preview 部署與 §4 五個環境變數 | B1、B6、B8 |
-| GitHub secret **`SEED_PASSWORD`** | CI e2e 的 seed 帳號密碼；未設時 CI 會自動產生一次性隨機密碼（可跑，但無法用固定密碼手動登入該次環境） | B3、B4 |
-| 一台有 **Docker** 的機器（或直接看 CI） | `supabase start`／`db reset`／完整 e2e 與 9 張截圖 | B2、B4、B5 |
+| GitHub secret **`SEED_PASSWORD`**（可選） | CI e2e 的 seed 帳號密碼；未設時 CI 會自動產生一次性隨機密碼（run #16 就是這樣跑的，e2e 照樣全綠），但無法用固定密碼手動登入那次的環境 | 不阻擋任何項，只影響「能不能手動登入 CI 的臨時堆疊」 |
+| 一台有 **Docker** 的機器（可選） | 取得 B5 的 10 張截圖；`91fcdc8` 之後 CI 綠燈也會上傳 artifact，所以這台機器只是備案 | B5 |
+| 一支 **手機**（LINE 內建瀏覽器）＋ staging URL | C-3 五步實測 | B8 |
+| **裁決**：要不要在 Phase 1 補 B9 的兩條測試（會動 `tests/**`） | 補上就能把 T07、T18 收成 ✅ | B9 |
 
 ### 7.4 待決（送交 Banson／HR 裁決，Phase 1 未改任何程式碼）
 
