@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import {
   buildNewcomerCard,
@@ -13,18 +14,22 @@ import { listAlertsWithSubmission } from "@/lib/db/queries/alerts";
 import { getVersionById } from "@/lib/db/queries/forms";
 import { activeNewcomers } from "@/lib/db/queries/profiles";
 import { getSettings } from "@/lib/db/queries/settings";
-import { listLogs, type Submission } from "@/lib/db/queries/submissions";
+import { listLogs, listWeeklyFeedback, type Submission } from "@/lib/db/queries/submissions";
 import { parseQuestions, type Question } from "@/lib/forms/schema";
-import { formatDate, taipeiDateOf } from "@/lib/time";
+import { weeklyReminders } from "@/lib/forms/submit";
+import { formatDate, taipeiDateOf, weekStartMonday } from "@/lib/time";
 
 export const metadata: Metadata = { title: "我的新人" };
 
 const MANAGER_PATH = "/manager";
+const WEEKLY_PATH = "/manager/weekly";
 
 const ON_BEHALF_MODE_TITLE = "HR 代填模式";
 const ON_BEHALF_MODE_TEXT = "您看到的是全部部門的 active 新人；在此回應預警或填週回饋會標註為 HR 代填。";
 const NO_DEPARTMENT_TEXT = "您的帳號尚未設定部門，請聯絡 HR。";
 const NO_NEWCOMERS_TEXT = "目前沒有在職新人。";
+const WEEKLY_REMINDER_TEXT = "週回饋未填";
+const WEEKLY_REMINDER_ACTION = "填寫";
 
 /** Parsed questions of the given form versions, keyed by id (unparseable / missing versions are left out). */
 async function loadVersions(ids: Iterable<string>): Promise<Map<string, readonly Question[]>> {
@@ -54,7 +59,10 @@ function groupByUser(logs: readonly Submission[]): Map<string, Submission[]> {
  * the active newcomers of their own department (§10 row 3; a manager
  * without a department sees nobody); hr / admin see every department and
  * the page is marked 「HR 代填模式」. `now` is read exactly once and every
- * derivation (today, R3 status, A1 overdue) gets it injected.
+ * derivation (today, R3 status, A1 overdue, Friday weekly reminder) gets it
+ * injected. T22: on a Taipei Friday every card whose newcomer has no weekly
+ * feedback for this week (`weeklyReminders`, any author) shows
+ * 「週回饋未填」 linking to /manager/weekly?newcomer={id}.
  */
 export default async function ManagerPage() {
   const actor = await requireRole(["manager", "hr", "admin"], { next: MANAGER_PATH });
@@ -70,12 +78,15 @@ export default async function ManagerPage() {
   const newcomers = population.filter((newcomer) => canAccessNewcomer(actor, newcomer));
   const userIds = newcomers.map((newcomer) => newcomer.id);
 
-  const [rawSettings, logs, openAlerts] = await Promise.all([
+  const [rawSettings, logs, openAlerts, weeklyThisWeek] = await Promise.all([
     getSettings(),
     listLogs({ userIds, dateTo: today }),
     listAlertsWithSubmission({ userIds, statuses: ["open"] }),
+    listWeeklyFeedback({ targetUserIds: userIds, weekStart: weekStartMonday(today) }),
   ]);
   const settings = parseDashboardSettings(rawSettings);
+  const reminders = weeklyReminders({ today, newcomerIds: userIds, feedback: weeklyThisWeek });
+  const weeklyMissing = new Set(reminders.missing);
 
   const logsByUser = groupByUser(logs);
   const versionIds: string[] = [];
@@ -122,7 +133,19 @@ export default async function ManagerPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {cards.map((card) => (
-            <NewcomerCard key={card.id} card={card} href={`${MANAGER_PATH}/newcomer/${card.id}`} />
+            <div key={card.id} className="flex flex-col">
+              <NewcomerCard card={card} href={`${MANAGER_PATH}/newcomer/${card.id}`} />
+              {weeklyMissing.has(card.id) ? (
+                <Link
+                  href={`${WEEKLY_PATH}?newcomer=${card.id}`}
+                  data-testid="weekly-reminder"
+                  className="-mt-1 flex min-h-11 items-center justify-between gap-2 rounded-b-xl border border-t-0 border-destructive/40 bg-destructive/10 px-4 text-sm font-medium text-destructive"
+                >
+                  <span>{WEEKLY_REMINDER_TEXT}</span>
+                  <span className="underline underline-offset-4">{WEEKLY_REMINDER_ACTION} →</span>
+                </Link>
+              ) : null}
+            </div>
           ))}
         </div>
       )}

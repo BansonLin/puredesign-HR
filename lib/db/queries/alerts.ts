@@ -190,3 +190,43 @@ export async function applyAlertChanges(
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Manager response (PLAN T18; CLAUDE.md §7 「主管回應」)
+// ---------------------------------------------------------------------------
+
+/**
+ * §7: submitting a `manager_response` turns every `open` alert of the target
+ * log into `responded` with `responded_at` and `response_submission_id`.
+ * One UPDATE filtered on `status = 'open'`, so `responded` / `closed` rows
+ * are never touched and a concurrent second responder cannot overwrite the
+ * first stamp. `respondedAt` is the response's instant (UTC ISO) decided by
+ * `prepareResponse`; this layer compares no clocks. Returns the number of
+ * rows changed (0 for a log without open alerts, §11 Darren 9/3).
+ *
+ * `alertIds` (the ids of `prepareResponse().alertPlan.respond`) narrows the
+ * UPDATE to the rows the pure plan decided on, so the plan and the write are
+ * one truth; the `status = 'open'` guard stays regardless. An empty list
+ * writes nothing and returns 0. Omit it to respond to every open alert of the
+ * log (the plain §7 statement, used when no plan is available).
+ */
+export async function markAlertsResponded(
+  submissionId: string,
+  responseSubmissionId: string,
+  respondedAt: string,
+  alertIds?: readonly string[],
+): Promise<number> {
+  if (alertIds && alertIds.length === 0) return 0;
+  let query = getAdminClient()
+    .from("alerts")
+    .update({
+      status: "responded",
+      responded_at: respondedAt,
+      response_submission_id: responseSubmissionId,
+    })
+    .eq("submission_id", submissionId)
+    .eq("status", "open");
+  if (alertIds) query = query.in("id", [...alertIds]);
+  const { data } = await query.select("id").throwOnError();
+  return data.length;
+}

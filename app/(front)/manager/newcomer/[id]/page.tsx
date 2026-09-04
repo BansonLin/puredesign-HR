@@ -11,19 +11,32 @@ import { buildTimeline, Timeline, type ResponderLike } from "@/components/dashbo
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { canRespond, requireNewcomerAccess } from "@/lib/auth/guard";
 import { listAlertsWithSubmission } from "@/lib/db/queries/alerts";
-import { getVersionById } from "@/lib/db/queries/forms";
+import { getActiveVersion, getVersionById } from "@/lib/db/queries/forms";
 import { listMilestones } from "@/lib/db/queries/milestones";
 import { getProfileByAuthId } from "@/lib/db/queries/profiles";
 import { getSettings } from "@/lib/db/queries/settings";
 import { listLogs, listResponsesForSubmissions } from "@/lib/db/queries/submissions";
 import { parseQuestions, type Question } from "@/lib/forms/schema";
+import { ownResponseAnswers } from "@/lib/forms/submit";
 import { taipeiDateOf } from "@/lib/time";
+
+import { submitManagerResponse } from "./actions";
+import { ResponseDrawer } from "./ResponseDrawer";
 
 export const metadata: Metadata = { title: "新人時間軸" };
 
 const MANAGER_PATH = "/manager";
 const ON_BEHALF_MODE_TITLE = "HR 代填模式";
 const ON_BEHALF_MODE_TEXT = "您不是這位新人的部門主管；在此回應預警會標註為 HR 代填。";
+const NO_RESPONSE_FORM_TEXT = "目前沒有可用的回應表單，暫時無法回應；請聯絡人資。";
+
+/** The `manager_response` active version, parsed; null when none is published or it cannot be parsed. */
+async function loadResponseQuestions(): Promise<readonly Question[] | null> {
+  const version = await getActiveVersion("manager_response");
+  if (!version) return null;
+  const parsed = parseQuestions(version.questions);
+  return parsed.ok ? parsed.questions : null;
+}
 
 /** Parsed questions of the given form versions, keyed by id (unparseable / missing versions are left out). */
 async function loadVersions(ids: Iterable<string>): Promise<Map<string, readonly Question[]>> {
@@ -57,7 +70,11 @@ interface PageProps {
  * `requireNewcomerAccess` enforces §10 row 3 (a manager of another
  * department gets 403; hr / ceo / admin may open anyone). The read-only
  * part: header, today's card, and one row per daily log (newest first).
- * T18 adds the 「回應」 action through `Timeline`'s `renderAction` slot.
+ * T18: when `canRespond` allows it (manager same department, hr / admin on
+ * behalf; ceo is read-only), every day gets a `ResponseDrawer` through
+ * `Timeline`'s `renderAction` slot, with `submitManagerResponse` bound to
+ * that day's log (D-25); a missing `manager_response` active version shows
+ * a notice instead of the buttons.
  */
 export default async function ManagerNewcomerPage({ params }: PageProps) {
   const { id } = await params;
@@ -67,11 +84,14 @@ export default async function ManagerNewcomerPage({ params }: PageProps) {
   const now = new Date();
   const today = taipeiDateOf(now);
 
-  const [rawSettings, logs, milestones, alerts] = await Promise.all([
+  const respond = canRespond(actor, newcomer);
+
+  const [rawSettings, logs, milestones, alerts, responseQuestions] = await Promise.all([
     getSettings(),
     listLogs({ userId: newcomer.id }),
     listMilestones({ userId: newcomer.id }),
     listAlertsWithSubmission({ userIds: [newcomer.id] }),
+    respond.allowed ? loadResponseQuestions() : Promise.resolve(null),
   ]);
   const settings = parseDashboardSettings(rawSettings);
 
@@ -94,7 +114,7 @@ export default async function ManagerNewcomerPage({ params }: PageProps) {
     now,
     thresholdHours: settings.thresholdHours,
   });
-  const onBehalf = canRespond(actor, newcomer).on_behalf;
+  const onBehalf = respond.on_behalf;
 
   return (
     <div className="flex flex-col gap-4">
@@ -117,7 +137,30 @@ export default async function ManagerNewcomerPage({ params }: PageProps) {
       ) : null}
       <NewcomerCard card={card} />
       <h2 className="text-lg font-semibold">時間軸</h2>
-      <Timeline days={days} />
+      {respond.allowed && responseQuestions === null ? (
+        <Alert variant="destructive" data-testid="no-response-form">
+          <AlertDescription>{NO_RESPONSE_FORM_TEXT}</AlertDescription>
+        </Alert>
+      ) : null}
+      <Timeline
+        days={days}
+        readOnly={!respond.allowed || responseQuestions === null}
+        renderAction={(day) =>
+          responseQuestions ? (
+            <ResponseDrawer
+              dateLabel={day.dateLabel}
+              alerts={day.alerts.map((alert) => ({ id: alert.id, kindLabel: alert.kindLabel }))}
+              questions={responseQuestions}
+              initialAnswers={ownResponseAnswers(responses, actor.id, day.logId)}
+              onBehalf={onBehalf}
+              action={submitManagerResponse.bind(null, {
+                newcomerId: newcomer.id,
+                targetSubmissionId: day.logId,
+              })}
+            />
+          ) : null
+        }
+      />
     </div>
   );
 }
