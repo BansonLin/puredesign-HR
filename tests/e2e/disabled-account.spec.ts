@@ -64,9 +64,11 @@ test.describe("停用帳號登入", () => {
     await expect(page.getByRole("alert")).toContainText(DISABLED_MESSAGE);
     await expect(page.getByRole("button", { name: "登入" })).toBeVisible();
 
-    // The action really signed the session out: with no cookie left, the
-    // account's own home page bounces back to /login (middleware, PLAN T07)
-    // instead of rendering — a disabled account cannot ride a stale session.
+    // The action really signed the session out (PLAN T07 「signOut 並導…」).
+    // Both outcomes land on /login, so `next` is what tells them apart: only
+    // the anonymous path through middleware sets `?next=…`. A surviving cookie
+    // would instead be caught one layer later by `requireRole`, which redirects
+    // to `/login?reason=disabled` with no `next` (lib/auth/guard.ts).
     await page.goto(ACCOUNTS.fresh.home);
     await page.waitForURL((url) => url.pathname === LOGIN_PATH);
     expect(new URL(page.url()).searchParams.get("next")).toBe(ACCOUNTS.fresh.home);
