@@ -38,6 +38,15 @@ function toAnswers(json: unknown, questions: readonly Question[]): Answers {
 }
 
 /**
+ * Options of a version's (enabled) `plan.top_priority` question, for the
+ * 「最重要」 badge's index mapping in TodayForm (items[i] ↔ options[i]). Kept
+ * here (server) rather than imported from the client module.
+ */
+function topPriorityOptions(questions: readonly Question[]): readonly string[] | null {
+  return questions.find((q) => !q.disabled && q.slot === "plan.top_priority")?.options ?? null;
+}
+
+/**
  * /me/today (CLAUDE.md §8, PLAN T15). Newcomer only (§10 row 1): the guard
  * sends manager / hr / ceo / admin to 403. `now` is read exactly once here
  * and every derivation gets the Taipei date computed from it; the Server
@@ -114,10 +123,13 @@ export default async function TodayPage() {
       yesterday = {
         dateLabel,
         plan: readYesterdayPlan(answersObject(previousLog.answers), parsedPrevious.questions),
+        topOptions: topPriorityOptions(parsedPrevious.questions),
       };
     } else {
+      // The error alert below is the only hint; TodayForm renders no per-item
+      // text and disables the submit button (`previousVersionMissing`).
       previousVersionMissing = true;
-      yesterday = { dateLabel, plan: readYesterdayPlan(null, null) };
+      yesterday = { dateLabel, plan: readYesterdayPlan(null, null), topOptions: null };
     }
   }
 
@@ -148,6 +160,7 @@ export default async function TodayPage() {
         questions={questions}
         initialAnswers={initialAnswers}
         yesterday={yesterday}
+        previousVersionMissing={previousVersionMissing}
         savedPlan={savedPlan}
         action={submitDailyLog}
       />

@@ -10,7 +10,9 @@ import { describedBy, type FieldProps } from "@/components/forms/FieldError";
  * row of at least 44px, and the whole row is the `<label>` of its radio, so a
  * tap anywhere on the text selects it. The value is not carried by Radix's
  * own hidden input — FormRenderer emits `<input type="hidden">` per question —
- * so the group deliberately has no `name`.
+ * so the group deliberately has no `name`. The group is always controlled
+ * (`value={value}`): `''` matches no option, so clearing the value unchecks
+ * every item instead of flipping Radix into uncontrolled mode.
  */
 export function SingleSelect({
   question,
@@ -25,7 +27,7 @@ export function SingleSelect({
   return (
     <RadioGroup
       id={id}
-      value={value === "" ? undefined : value}
+      value={value}
       onValueChange={onChange}
       disabled={disabled}
       required={question.required}

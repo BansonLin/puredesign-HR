@@ -281,6 +281,40 @@ describe("prepareDailyLog — resubmit and the 23:59 boundary", () => {
     expect(result.alertPlan.insert).toEqual([]);
   });
 
+  it("a responded R1 stays untouched when the three items are resubmitted as 完成 (A10)", () => {
+    const existing = yenExistingToday();
+    existing.alerts[0]!.status = "responded";
+    const result = prepared({
+      now: T_0903_2359,
+      existingToday: existing,
+      rawAnswers: {
+        ...YEN_0903.answers,
+        r1_status: "完成",
+        r1_reason: null,
+        r2_status: "完成",
+        r3_status: "完成",
+        r3_reason: null,
+      },
+    });
+    expect(result.alertPlan.close).toEqual([]);
+    expect(result.alertPlan.insert).toEqual([]);
+    expect(result.alertPlan.updateDetail).toEqual([]);
+    expect(result.alertPlan.reopen).toEqual([]);
+    expect(result.alertPlan.untouched.map((a) => a.id)).toEqual(["alert-r1"]);
+    expect(result.alertPlan.untouched[0]!.status).toBe("responded");
+  });
+
+  it("resubmitting unchanged answers → everything untouched, nothing planned", () => {
+    const existing = yenExistingToday();
+    const result = prepared({ now: T_0903_2359, existingToday: existing, rawAnswers: YEN_0903.answers });
+    expect(result.alertPlan.insert).toEqual([]);
+    expect(result.alertPlan.updateDetail).toEqual([]);
+    expect(result.alertPlan.close).toEqual([]);
+    expect(result.alertPlan.reopen).toEqual([]);
+    expect(result.alertPlan.untouched).toEqual(existing.alerts);
+    expect(result.answers).toEqual(existing.answers);
+  });
+
   it("a closed R1 that holds again → reopen with created_at = now", () => {
     const existing = yenExistingToday();
     existing.alerts[0]!.status = "closed";

@@ -15,7 +15,7 @@ seed 由 `supabase/seed/seed.ts` 執行（`pnpm db:seed`），以 service role �
 | `SEED_PASSWORD` | 所有 seed 帳號的密碼；未設或空白時 seed 直接中止（`seed 中止：SEED_PASSWORD 未設定…`） |
 | `SEED_ALLOWED_PROJECT_REF` | 准許 seed 的專案 ref；supabase CLI 本機堆疊填 `local`，staging 填該專案 ref |
 
-`.env.local` 不存在時 seed 仍會執行（變數改由 shell／CI 提供），只會印一行 `.env.local not found`。
+`.env.local` 不存在時 seed 仍會執行（變數改由 shell／CI 提供），會印提示訊息。
 
 ### 1.2 指令一覽
 
@@ -23,7 +23,7 @@ seed 由 `supabase/seed/seed.ts` 執行（`pnpm db:seed`），以 service role �
 |---|---|---|
 | `pnpm db:seed --base` | 只寫 base：departments、settings（含 `rules` 預設）、三張範本 v1、`banson`／`hr`／`ceo` 帳號 | 本機、staging、**production**（上線順序：`supabase db push` → `pnpm db:seed --base`） |
 | `pnpm db:seed` | base ＋ fixture：四主管、四新人、`e2e_fresh`、milestones（15 筆）、§11 的 8 筆日誌、2 筆主管回應、1 筆週回饋，並由規則產生 2 筆預警 | 本機、staging、CI；`NODE_ENV=production` 時拒絕 |
-| `pnpm db:seed --verify` | 完整模式連跑兩次，比對各表筆數（兩次相同且等於預期：submissions 11、alerts 2）與不變量；任一不符即 exit 1 | 同上 |
+| `pnpm db:seed --verify` | 連跑兩次（可與 `--base` 或完整模式並用）並比對各表筆數與不變量；base 預期 profiles 3、submissions 0、alerts 0；完整 submissions 11、alerts 2；任一不符即 exit 1 | 同所搭配的模式 |
 | `pnpm db:seed --anchor YYYY-MM-DD` | 完整模式，並把 fixture 的「9/3」平移到指定日期（見 1.4） | 只准本機與 staging；`CI=true` 或搭配 `--base`／`--milestones-only` 時拒絕 |
 | `pnpm db:seed --milestones-only` | 為所有「有到職日」的新人補齊缺少的 D30／D60／D90（既有列不動） | 本機、staging、production |
 | `pnpm db:seed --reset-passwords` | 把所有 seed 帳號的密碼重設為 `SEED_PASSWORD`（預設不動既有密碼；`e2e_fresh` 每次都重設） | 與所搭配的模式相同 |

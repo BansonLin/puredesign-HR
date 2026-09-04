@@ -20,8 +20,11 @@
  *      `bySlot(previousVersion, previousLog.answers)` → `runRules` →
  *      `reconcile(existingToday.alerts, drafts, now)` → `alertPlan`.
  *
- * Instants: a first submit gets `submitted_at = now`; a resubmit keeps the
- * original `submitted_at` and sets `updated_at = now`. `reconcile` receives
+ * Instants: a first submit gets `submitted_at = now` (and `insertDailyLog`
+ * writes `updated_at = submitted_at`); a resubmit keeps the original
+ * `submitted_at` and reports `updated_at = now` for the caller's own use —
+ * the column itself is maintained by the DB trigger on the update path
+ * (`DailyLogUpdate` has no `updated_at`). `reconcile` receives
  * `now` in both cases, which equals `submitted_at` on the first submit — so a
  * brand-new alert's `created_at` is the log's `submitted_at` (§11 「≈16.1h」)
  * and an alert re-opened by a resubmit is stamped with the resubmit time
@@ -100,7 +103,12 @@ export interface PreparedDailyLog<E extends ExistingAlertLike> {
   answers: Answers;
   /** UTC ISO. First submit: `now`; resubmit: the existing row's value, unchanged. */
   submitted_at: string;
-  /** UTC ISO; always `now`. */
+  /**
+   * UTC ISO; always `now`. Written to the row only on a first submit
+   * (`insertDailyLog`, where it equals `submitted_at`); on the update path the
+   * DB trigger `submissions_set_updated_at` is authoritative and this value is
+   * informational (it is also the `now` `reconcile` used).
+   */
   updated_at: string;
   /** null for a first submit; the existing row's id on a resubmit. */
   existing_id: string | null;

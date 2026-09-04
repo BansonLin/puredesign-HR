@@ -67,7 +67,7 @@ import {
   type SeedProfile,
   type SettingKey,
 } from "./fixtures";
-import { buildSeedPlan, type PlannedAlert, type SeedPlan } from "./plan";
+import { buildSeedPlan, comparePlanAlerts, type PlannedAlert, type SeedPlan } from "./plan";
 
 type Mode = "base" | "full" | "milestones-only";
 
@@ -527,11 +527,12 @@ async function seedDailyLogs(plan: SeedPlan): Promise<SubmissionIds> {
       abort(`日誌 seq ${log.seq} 的 log_date 應為 ${log.log_date}，pipeline 算出 ${prepared.log_date}`);
     }
 
+    // Re-run: `updated_at` is left to the DB trigger (DailyLogUpdate has none),
+    // so an identical rewrite changes nothing.
     const saved = prepared.existing_id
       ? await updateDailyLog(prepared.existing_id, {
           form_version_id: prepared.form_version_id,
           answers: prepared.answers,
-          updated_at: prepared.updated_at,
         })
       : await insertDailyLog({
           user_id: prepared.user_id,
@@ -848,14 +849,24 @@ async function runSeed(client: AdminClient, opts: Options, password: string, shi
     await seedProfiles(client, FIXTURE_PROFILES, departmentIds, ctx);
     await seedMilestones(client, FIXTURE_PROFILES, shiftDays);
     // PLAN 4.9.2 order: submissions (by log_date) → alerts → responses → weekly.
+    // Before any row is written, the plan (rules output) must equal the pinned
+    // EXPECTED_ALERTS (rule_key / log_seq / status / response_seq / detail,
+    // created_at / responded_at shifted by --anchor).
     const plan = buildSeedPlan({ shiftDays });
+    const planProblems = comparePlanAlerts(plan);
+    if (planProblems.length > 0) {
+      for (const p of planProblems) console.error(`  ✗ ${p}`);
+      abort(
+        `alerts 與 EXPECTED_ALERTS 不符（${planProblems.length} 項）：規則或 fixture 已改，請先更新 supabase/seed/fixtures/expected.ts`,
+      );
+    }
     const logIds = await seedDailyLogs(plan);
     const responseIds = await seedResponses(client, plan, logIds);
     await seedWeeklyFeedback(client, plan);
     const { problems, summary } = await verifyAlerts(plan, logIds, responseIds);
     if (problems.length > 0) {
       for (const p of problems) console.error(`  ✗ ${p}`);
-      abort(`alerts 與 EXPECTED_ALERTS 不符（${problems.length} 項）：seed 與規則分岐，請先修規則或 fixture`);
+      abort(`資料庫 alerts 與 seed plan 不符（${problems.length} 項）：seed 與規則分岐，請先修規則或 fixture`);
     }
     log(`alerts 與預期一致：${summary.join("、")}`);
   }

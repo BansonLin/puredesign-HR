@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { weekStartMonday } from "@/lib/time";
+import { calendarDaysBetween, taipeiDateOf, weekStartMonday } from "@/lib/time";
 import {
   EXPECTED_ALERT_FREE_LOG_SEQS,
   EXPECTED_ALERTS,
@@ -12,7 +12,13 @@ import {
   NEWCOMER_DAILY_QUESTIONS,
   YEN_R1_RESPONSE_LAG_MS,
 } from "@seed/fixtures";
-import { buildSeedPlan, shiftDate, shiftInstant, type PlannedAlert } from "@seed/plan";
+import {
+  buildSeedPlan,
+  comparePlanAlerts,
+  shiftDate,
+  shiftInstant,
+  type PlannedAlert,
+} from "@seed/plan";
 
 /**
  * T16 seed plan (pure): the §11 fixture run through the SAME pipeline as
@@ -70,6 +76,40 @@ describe("buildSeedPlan (fixed §11 timeline)", () => {
 
   it("alerts deep-equal EXPECTED_ALERTS after the responses are applied", () => {
     expect(plan.alerts).toEqual(EXPECTED);
+  });
+
+  it("comparePlanAlerts (the seed's pre-write gate) reports no difference", () => {
+    expect(comparePlanAlerts(plan)).toEqual([]);
+  });
+
+  it("comparePlanAlerts reports every kind of difference", () => {
+    const tampered = structuredClone(plan);
+    const yen = tampered.alerts.find((a) => a.username === "yen_yaling")!;
+    yen.status = "open";
+    yen.response_seq = null;
+    yen.responded_at = null;
+    yen.created_at = shiftInstant(yen.created_at, 1);
+    (yen.detail as { items: unknown[] }).items = [];
+    const problems = comparePlanAlerts(tampered);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("yen_yaling R1（日誌 seq 6）");
+    for (const field of ["status", "response_seq", "created_at", "responded_at", "detail"]) {
+      expect(problems[0]).toContain(field);
+    }
+
+    const missing = structuredClone(plan);
+    missing.alerts = missing.alerts.filter((a) => a.username !== "hung_hsiangting");
+    expect(comparePlanAlerts(missing)).toEqual([
+      "alerts 筆數：plan 1 筆、EXPECTED_ALERTS 2 筆",
+      "hung_hsiangting R2（日誌 seq 7）：plan 沒有這筆",
+    ]);
+
+    const extra = structuredClone(plan);
+    extra.alerts.push({ ...extra.alerts[1]!, log_seq: 8, username: "hsieh_wenhsin" });
+    expect(comparePlanAlerts(extra)).toEqual([
+      "alerts 筆數：plan 3 筆、EXPECTED_ALERTS 2 筆",
+      "hsieh_wenhsin R2（日誌 seq 8）：EXPECTED_ALERTS 沒有這筆",
+    ]);
   });
 
   it("嚴雅齡 R1 is responded by seq 9 (≈16.1h later); 洪湘庭 R2 stays open", () => {
@@ -157,13 +197,24 @@ describe("buildSeedPlan --anchor (shiftDays)", () => {
     });
   });
 
-  it.each([1, 13, -3, 21])("shift %i: week_start is a Monday of the submission week", (days) => {
+  it.each([1, 13, -3, 21])("shift %i: week_start is the Monday of the submission's own week", (days) => {
     const shifted = buildSeedPlan({ shiftDays: days });
     for (const weekly of shifted.weekly) {
       expect(weekStartMonday(weekly.week_start)).toBe(weekly.week_start);
       expect(weekly.answers.week_start).toBe(weekly.week_start);
       expect(weekly.submitted_at).toBe(shiftInstant(base.weekly[0]!.submitted_at, days));
+      // D-28: the feedback stays "this week's" — week_start is the Monday of
+      // the (Taipei) submission date, at most 6 days before it.
+      const submittedDate = taipeiDateOf(weekly.submitted_at);
+      expect(weekStartMonday(submittedDate)).toBe(weekly.week_start);
+      const offset = calendarDaysBetween(weekly.week_start, submittedDate);
+      expect(offset).toBeGreaterThanOrEqual(0);
+      expect(offset).toBeLessThan(7);
     }
+  });
+
+  it.each([1, 13, -3, 21])("shift %i: comparePlanAlerts still matches (instants shifted)", (days) => {
+    expect(comparePlanAlerts(buildSeedPlan({ shiftDays: days }))).toEqual([]);
   });
 
   it("anchor 2026-09-16 (shift 13): logs 9/15–9/16, weekly for the week of 9/14", () => {

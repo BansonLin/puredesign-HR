@@ -5,7 +5,7 @@ import type { Question } from "@/lib/forms/schema";
 import { RULES_DEFAULTS, type RulesSettings } from "@/lib/rules/constants";
 import { r1 } from "@/lib/rules/r1";
 import { r2 } from "@/lib/rules/r2";
-import { runRules } from "@/lib/rules/run";
+import { reconcile, runRules } from "@/lib/rules/run";
 import { RulesSettingsError, parseRulesSettings, rulesSettingsErrors } from "@/lib/rules/settings";
 import type { AlertDraft } from "@/lib/rules/types";
 import {
@@ -145,6 +145,24 @@ describe("§11 expected alerts (runRules with the seed settings)", () => {
     }));
     expect(produced).toEqual(expected);
     expect(produced).toHaveLength(2);
+  });
+
+  it("a fresh reconcile at each log's submitted_at stamps created_at = EXPECTED_ALERTS.created_at", () => {
+    // D-23 (2): insert.created_at is the `now` handed to reconcile, which the
+    // submit pipeline sets to the log's submitted_at (§11 「≈16.1h」 relies on it).
+    for (const entry of FIXTURE_DAILY_LOGS) {
+      const drafts = run(entry);
+      const { insert } = reconcile({ existing: [], drafts, now: entry.submitted_at });
+      expect(insert).toHaveLength(drafts.length);
+      const expectedRows = EXPECTED_ALERTS.filter((a) => a.log_seq === entry.seq);
+      expect(insert).toHaveLength(expectedRows.length);
+      if (insert.length === 0) continue;
+      const row = insert[0]!;
+      const expectedRow = expectedRows.find((a) => a.rule_key === row.rule_key);
+      expect(expectedRow).toBeDefined();
+      expect(new Date(row.created_at).getTime()).toBe(new Date(expectedRow!.created_at).getTime());
+      expect(new Date(row.created_at).getTime()).toBe(new Date(entry.submitted_at).getTime());
+    }
   });
 });
 

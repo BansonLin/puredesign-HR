@@ -6,17 +6,24 @@
  * Renders one published version's questions for the person filling it in.
  * Pure client component: no data access (secrets boundary), no date math.
  * - `useState` holds the raw answers; visibility is recomputed on every
- *   change with `resolveVisibility` (chained `show_if`, A11 / D-15).
+ *   change with `resolveVisibility` (chained `show_if`, A11 / D-15) over the
+ *   TRIMMED values, the same view `validateAnswers` takes (`'  '` counts as
+ *   empty), so what is shown and what is validated never disagree.
  * - `useActionState` wraps the Server Action the page passes in; the action
  *   receives the FormData of the visible questions (hidden ones are absent
  *   → `null` after `validateAnswers`) and returns a `FormActionState`.
  * - Before the action runs, `validateAnswers` runs client-side; errors show
  *   under their question and the first one is scrolled into view. Errors the
- *   action returns are shown the same way.
+ *   action returns are copied into the same working set, so editing a
+ *   question clears its error whichever side produced it.
  * - While the action is pending every control and the submit button are
- *   disabled (no double submit).
+ *   disabled (no double submit). `submitDisabled` lets the page block the
+ *   submit button for its own reasons (e.g. /me/today when yesterday's
+ *   version cannot be loaded).
  * - `beforeQuestion(q)` lets /me/today put yesterday's plan text above the
  *   `r{i}_status` questions without a second renderer.
+ * - `QuestionBlock` is the per-question presentation (label, help, control,
+ *   error line), exported so tests can render it with an error / disabled.
  */
 import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -73,6 +80,8 @@ export interface FormRendererProps {
    * the page with `action.bind(null, …)`, not passed through here.
    */
   beforeQuestion?: (question: Question) => ReactNode;
+  /** Disable the submit button regardless of pending state (controls stay editable). */
+  submitDisabled?: boolean;
   className?: string;
 }
 
@@ -85,6 +94,13 @@ function toRawAnswers(questions: readonly Question[], initial: Answers | null | 
   const raw: Record<string, string> = {};
   for (const q of questions) raw[q.key] = initial?.[q.key] ?? "";
   return raw;
+}
+
+/** Every value trimmed — the view `validateAnswers` normalizes to (`'  '` → empty). */
+function trimAnswers(answers: Readonly<Record<string, string>>): Record<string, string> {
+  const trimmed: Record<string, string> = {};
+  for (const [key, value] of Object.entries(answers)) trimmed[key] = value.trim();
+  return trimmed;
 }
 
 function scrollToQuestion(key: string) {
@@ -116,6 +132,72 @@ function FieldControl({
   }
 }
 
+export interface QuestionBlockProps {
+  question: Question;
+  /** Current raw value; `''` = empty. */
+  value: string;
+  /** Error text for this question, when any. */
+  error?: string;
+  disabled?: boolean;
+  userOptions?: readonly UserOption[];
+  onChange: (value: string) => void;
+  /** Rendered first, above the label (see `FormRendererProps.beforeQuestion`). */
+  beforeQuestion?: (question: Question) => ReactNode;
+}
+
+/**
+ * One question: label (or group label for `single_select`), help text, the
+ * control and its error line. Pure presentation: every value comes in as a
+ * prop, so tests can render it with an error / disabled directly.
+ */
+export function QuestionBlock({
+  question,
+  value,
+  error,
+  disabled,
+  userOptions = [],
+  onChange,
+  beforeQuestion,
+}: QuestionBlockProps) {
+  const id = questionFieldId(question.key);
+  const errorId = error ? fieldErrorId(id) : undefined;
+  const helpId = question.help ? `${id}-help` : undefined;
+  const isGroup = question.type === "single_select";
+  return (
+    <div className="flex flex-col gap-2" data-question={question.key}>
+      {beforeQuestion?.(question)}
+      {isGroup ? (
+        <span id={`${id}-label`} className="text-sm font-medium leading-none">
+          {question.label}
+          {question.required ? <RequiredMark /> : null}
+        </span>
+      ) : (
+        <Label htmlFor={id}>
+          {question.label}
+          {question.required ? <RequiredMark /> : null}
+        </Label>
+      )}
+      {question.help ? (
+        <p id={helpId} className="text-sm text-muted-foreground">
+          {question.help}
+        </p>
+      ) : null}
+      {isGroup ? <input type="hidden" name={question.key} value={value} /> : null}
+      <FieldControl
+        question={question}
+        id={id}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        errorId={errorId}
+        helpId={helpId}
+        userOptions={userOptions}
+      />
+      <FieldError id={errorId ?? fieldErrorId(id)} message={error} />
+    </div>
+  );
+}
+
 export function FormRenderer({
   questions,
   initialAnswers,
@@ -123,23 +205,28 @@ export function FormRenderer({
   action,
   submitLabel,
   beforeQuestion,
+  submitDisabled = false,
   className,
 }: FormRendererProps) {
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
     toRawAnswers(questions, initialAnswers),
   );
+  // The one error set on display: client validation errors, or the Server
+  // Action's errors copied in when a new state arrives (see the effect below).
   const [clientErrors, setClientErrors] = useState<Record<string, string> | null>(null);
   const [state, formAction, isPending] = useActionState(action, INITIAL_FORM_STATE);
   const lastServerState = useRef(state);
 
-  const { visible } = resolveVisibility(questions, answers);
-  const errors = clientErrors ?? state.errors ?? {};
+  const { visible } = resolveVisibility(questions, trimAnswers(answers));
+  const errors = clientErrors ?? {};
 
-  // Errors returned by the Server Action: scroll to the first one, in
-  // display order, once per new state object.
+  // A new state object from the Server Action: its errors become the working
+  // set (so fixing a question clears its error) and the first one, in display
+  // order, is scrolled into view — once per new state object.
   useEffect(() => {
     if (lastServerState.current === state) return;
     lastServerState.current = state;
+    setClientErrors(state.errors ? { ...state.errors } : null);
     if (!state.errors) return;
     const first = visible.find((q) => state.errors?.[q.key]);
     if (first) scrollToQuestion(first.key);
@@ -186,48 +273,24 @@ export function FormRenderer({
           <AlertDescription>{state.message}</AlertDescription>
         </Alert>
       ) : null}
-      {visible.map((question) => {
-        const id = questionFieldId(question.key);
-        const error = errors[question.key];
-        const errorId = error ? fieldErrorId(id) : undefined;
-        const helpId = question.help ? `${id}-help` : undefined;
-        const value = answers[question.key] ?? "";
-        const isGroup = question.type === "single_select";
-        return (
-          <div key={question.key} className="flex flex-col gap-2" data-question={question.key}>
-            {beforeQuestion?.(question)}
-            {isGroup ? (
-              <span id={`${id}-label`} className="text-sm font-medium leading-none">
-                {question.label}
-                {question.required ? <RequiredMark /> : null}
-              </span>
-            ) : (
-              <Label htmlFor={id}>
-                {question.label}
-                {question.required ? <RequiredMark /> : null}
-              </Label>
-            )}
-            {question.help ? (
-              <p id={helpId} className="text-sm text-muted-foreground">
-                {question.help}
-              </p>
-            ) : null}
-            {isGroup ? <input type="hidden" name={question.key} value={value} /> : null}
-            <FieldControl
-              question={question}
-              id={id}
-              value={value}
-              onChange={(next) => setAnswer(question.key, next)}
-              disabled={isPending}
-              errorId={errorId}
-              helpId={helpId}
-              userOptions={userOptions}
-            />
-            <FieldError id={errorId ?? fieldErrorId(id)} message={error} />
-          </div>
-        );
-      })}
-      <Button type="submit" data-primary className="w-full" disabled={isPending}>
+      {visible.map((question) => (
+        <QuestionBlock
+          key={question.key}
+          question={question}
+          value={answers[question.key] ?? ""}
+          error={errors[question.key]}
+          disabled={isPending}
+          userOptions={userOptions}
+          onChange={(next) => setAnswer(question.key, next)}
+          beforeQuestion={beforeQuestion}
+        />
+      ))}
+      <Button
+        type="submit"
+        data-primary
+        className="w-full"
+        disabled={isPending || submitDisabled}
+      >
         {isPending ? "送出中…" : submitLabel}
       </Button>
     </form>

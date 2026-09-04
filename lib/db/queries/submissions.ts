@@ -148,11 +148,15 @@ export interface DailyLogInsert {
   source?: Enums<"submission_source">;
 }
 
+/**
+ * Patch of a resubmit. `updated_at` is deliberately absent: on the update
+ * path the DB trigger `submissions_set_updated_at` (PLAN 4.6) is the single
+ * source of truth and stamps `now()` whenever the row actually changes; the
+ * insert path still writes `updated_at = submitted_at` (`DailyLogInsert`).
+ */
 export interface DailyLogUpdate {
   form_version_id: string;
   answers: Json;
-  /** UTC ISO. */
-  updated_at: string;
 }
 
 export const DAILY_LOG_EXISTS = "今天的日誌已存在";
@@ -193,8 +197,10 @@ export async function insertDailyLog(input: DailyLogInsert): Promise<Submission>
  * Update the answers of an existing (non-deleted) daily log found by
  * `getLogByDate`. `submitted_at`, `user_id` and `log_date` never change;
  * `form_version_id` is rewritten to the active version (§6: a resubmit always
- * uses the active version). Throws `DAILY_LOG_NOT_FOUND` when the id no
- * longer matches a live daily log (soft-deleted meanwhile).
+ * uses the active version). `updated_at` is not written here — the DB trigger
+ * maintains it on the update path (see `DailyLogUpdate`), so an identical
+ * rewrite (seed re-run) leaves the row untouched. Throws `DAILY_LOG_NOT_FOUND`
+ * when the id no longer matches a live daily log (soft-deleted meanwhile).
  */
 export async function updateDailyLog(
   id: string,
@@ -205,7 +211,6 @@ export async function updateDailyLog(
     .update({
       form_version_id: patch.form_version_id,
       answers: patch.answers,
-      updated_at: patch.updated_at,
     })
     .eq("id", id)
     .eq("template_key", "newcomer_daily")

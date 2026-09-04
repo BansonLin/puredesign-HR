@@ -104,7 +104,8 @@ export interface ApplyAlertChangesResult {
  *                  submitted_at), responded_* / closed_* null. Written with
  *                  ON CONFLICT (submission_id, rule_key) DO NOTHING: a row that
  *                  appeared between the reconcile read and this write is left
- *                  as the other writer stored it (never downgraded to open).
+ *                  as the other writer stored it (never downgraded to open);
+ *                  `inserted` counts the rows PostgREST actually returned.
  *   updateDetail → only `detail`.
  *   close        → status 'closed', closed_at, closed_by null, closed_reason 'resubmitted'.
  *   reopen       → status 'open', detail, created_at = plan.created_at,
@@ -136,11 +137,14 @@ export async function applyAlertChanges(
       closed_by: null,
       closed_reason: null,
     }));
-    await db
+    // With ignoreDuplicates (DO NOTHING) PostgREST returns only the rows that
+    // were actually written, so `inserted` counts those, not the attempts.
+    const { data } = await db
       .from("alerts")
       .upsert(rows, { onConflict: "submission_id,rule_key", ignoreDuplicates: true })
+      .select("id")
       .throwOnError();
-    result.inserted = rows.length;
+    result.inserted = data.length;
   }
 
   for (const item of plan.updateDetail) {

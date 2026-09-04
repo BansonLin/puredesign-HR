@@ -26,6 +26,7 @@ import type { Answers } from "@/lib/forms/schema";
 import { prepareDailyLog, type VersionLike } from "@/lib/forms/submit";
 import { validateAnswers } from "@/lib/forms/validate";
 import { parseQuestions } from "@/lib/forms/schema";
+import { detailEquals } from "@/lib/rules/run";
 import { parseRulesSettings } from "@/lib/rules/settings";
 import type { AlertRuleKey } from "@/lib/rules/types";
 import {
@@ -38,12 +39,14 @@ import {
 } from "@/lib/time";
 
 import {
+  EXPECTED_ALERTS,
   FIXTURE_DAILY_LOGS,
   FIXTURE_PROFILES,
   FIXTURE_RESPONSES,
   FIXTURE_WEEKLY_FEEDBACK,
   FORM_TEMPLATES,
   RULES_SETTINGS,
+  type ExpectedAlert,
 } from "./fixtures";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -306,4 +309,60 @@ export function buildSeedPlan(opts: SeedPlanOptions = {}): SeedPlan {
   alerts.sort((a, b) => a.log_seq - b.log_seq || (a.rule_key < b.rule_key ? -1 : 1));
 
   return { shiftDays, logs, responses, weekly, alerts };
+}
+
+/**
+ * Compare a plan's alerts with `EXPECTED_ALERTS` (PLAN 4.9.4) field by
+ * field — rule_key / log_seq / username / status / response_seq, `detail`
+ * through `detailEquals`, and created_at / responded_at against the expected
+ * instants shifted by `plan.shiftDays` (`shiftInstant`). One line per
+ * difference; an empty array means they match. `seed.ts` aborts on any line
+ * before writing a row (seed and rules never diverge from the pinned
+ * expectations); tests/unit/seed-plan.test.ts pins the same comparison.
+ */
+export function comparePlanAlerts(
+  plan: SeedPlan,
+  expected: readonly ExpectedAlert[] = EXPECTED_ALERTS,
+): string[] {
+  const problems: string[] = [];
+  const label = (a: { username: string; rule_key: string; log_seq: number }) =>
+    `${a.username} ${a.rule_key}（日誌 seq ${a.log_seq}）`;
+  const sameKey = (a: { log_seq: number; rule_key: string }, b: { log_seq: number; rule_key: string }) =>
+    a.log_seq === b.log_seq && a.rule_key === b.rule_key;
+
+  if (plan.alerts.length !== expected.length) {
+    problems.push(`alerts 筆數：plan ${plan.alerts.length} 筆、EXPECTED_ALERTS ${expected.length} 筆`);
+  }
+  for (const exp of expected) {
+    const actual = plan.alerts.find((a) => sameKey(a, exp));
+    if (!actual) {
+      problems.push(`${label(exp)}：plan 沒有這筆`);
+      continue;
+    }
+    const diffs: string[] = [];
+    if (actual.username !== exp.username) diffs.push(`username ${actual.username}≠${exp.username}`);
+    if (actual.status !== exp.status) diffs.push(`status ${actual.status}≠${exp.status}`);
+    if (actual.response_seq !== exp.response_seq) {
+      diffs.push(`response_seq ${actual.response_seq}≠${exp.response_seq}`);
+    }
+    const expectedCreated = shiftInstant(exp.created_at, plan.shiftDays);
+    if (actual.created_at !== expectedCreated) {
+      diffs.push(`created_at ${actual.created_at}≠${expectedCreated}`);
+    }
+    const expectedResponded =
+      exp.responded_at === null ? null : shiftInstant(exp.responded_at, plan.shiftDays);
+    if (actual.responded_at !== expectedResponded) {
+      diffs.push(`responded_at ${actual.responded_at}≠${expectedResponded}`);
+    }
+    if (!detailEquals(actual.detail, exp.detail)) {
+      diffs.push(`detail ${JSON.stringify(actual.detail)}≠${JSON.stringify(exp.detail)}`);
+    }
+    if (diffs.length > 0) problems.push(`${label(exp)}：${diffs.join("；")}`);
+  }
+  for (const actual of plan.alerts) {
+    if (!expected.some((e) => sameKey(e, actual))) {
+      problems.push(`${label(actual)}：EXPECTED_ALERTS 沒有這筆`);
+    }
+  }
+  return problems;
 }

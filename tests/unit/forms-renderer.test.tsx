@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { FormRenderer, type FormActionState } from "@/components/forms/FormRenderer";
+import {
+  FormRenderer,
+  QuestionBlock,
+  type FormActionState,
+} from "@/components/forms/FormRenderer";
 import { parseQuestions, type Answers, type Question } from "@/lib/forms/schema";
 import { NEWCOMER_DAILY_QUESTIONS } from "@seed/fixtures";
 
@@ -171,6 +175,14 @@ describe("FormRenderer: show_if on the §11 newcomer_daily v1 questions", () => 
     expect(typed).toContain("明日項目二預計");
   });
 
+  it("visibility is computed on trimmed values, like validateAnswers (whitespace-only = empty)", () => {
+    const blank = render(questions, v1Answers({ p2_text: "   " }));
+    expect(blank).toContain('id="q-p2_text"');
+    expect(blank).not.toContain('id="q-p2_expect"');
+    // the control itself still shows the raw (untrimmed) value
+    expect(tagById(blank, "q-p2_text")).toContain('value="   "');
+  });
+
   it("r1_reason follows r1_status ∈ {持續中, 取消}", () => {
     expect(render(questions, v1Answers({ r1_status: "完成" }))).not.toContain('id="q-r1_reason"');
     expect(render(questions, v1Answers({ r1_status: "持續中" }))).toContain('id="q-r1_reason"');
@@ -192,5 +204,74 @@ describe("FormRenderer: show_if on the §11 newcomer_daily v1 questions", () => 
     expect(marker).toBeGreaterThan(-1);
     expect(marker).toBeLessThan(label);
     expect((html.match(/data-testid="yesterday-1"/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("QuestionBlock: error and disabled presentation", () => {
+  const noopChange = () => {};
+  const byKey = (key: string): Question => {
+    const found = ALL_TYPES_QUESTIONS.find((q) => q.key === key);
+    if (!found) throw new Error(`no all-types question ${key}`);
+    return found;
+  };
+
+  it("short_text with an error → role=alert line, aria-invalid, aria-describedby with -error", () => {
+    const html = renderToStaticMarkup(
+      <QuestionBlock question={byKey("headline")} value="" error="此題必填" onChange={noopChange} />,
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('id="q-headline-error"');
+    expect(html).toContain("此題必填");
+    const input = tagById(html, "q-headline");
+    expect(input).toContain('aria-invalid="true"');
+    expect(input).toMatch(/aria-describedby="[^"]*q-headline-error"/);
+  });
+
+  it("single_select with an error → the radio group carries aria-invalid and the -error id", () => {
+    const html = renderToStaticMarkup(
+      <QuestionBlock question={byKey("mood")} value="" error="請從選項中選擇" onChange={noopChange} />,
+    );
+    expect(html).toContain('role="alert"');
+    const group = tagById(html, "q-mood");
+    expect(group).toContain('role="radiogroup"');
+    expect(group).toContain('aria-invalid="true"');
+    expect(group).toMatch(/aria-describedby="[^"]*-error"/);
+    // help text and error are both referenced
+    expect(group).toMatch(/aria-describedby="q-mood-help q-mood-error"/);
+  });
+
+  it("without an error → no alert line and no aria-invalid", () => {
+    const html = renderToStaticMarkup(
+      <QuestionBlock question={byKey("headline")} value="x" onChange={noopChange} />,
+    );
+    expect(html).not.toContain('role="alert"');
+    // (`aria-invalid:` also appears in the Input's Tailwind variant classes)
+    expect(html).not.toContain('aria-invalid="true"');
+    expect(html).not.toContain("-error");
+  });
+
+  it("disabled → the control (and every radio) carries the disabled attribute", () => {
+    const text = renderToStaticMarkup(
+      <QuestionBlock question={byKey("headline")} value="" disabled onChange={noopChange} />,
+    );
+    expect(tagById(text, "q-headline")).toMatch(/ disabled=""/);
+
+    const radios = renderToStaticMarkup(
+      <QuestionBlock question={byKey("mood")} value="普通" disabled onChange={noopChange} />,
+    );
+    for (let i = 0; i < 3; i += 1) expect(tagById(radios, `q-mood-opt-${i}`)).toMatch(/ disabled=""/);
+    expect(tagById(radios, "q-mood-opt-1")).toContain('data-state="checked"');
+  });
+
+  it("beforeQuestion renders above the label", () => {
+    const html = renderToStaticMarkup(
+      <QuestionBlock
+        question={byKey("headline")}
+        value=""
+        onChange={noopChange}
+        beforeQuestion={() => <p data-testid="before">上方</p>}
+      />,
+    );
+    expect(html.indexOf('data-testid="before"')).toBeLessThan(html.indexOf("一句話"));
   });
 });
