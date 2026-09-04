@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
 import { AlertList } from "@/components/dashboard/AlertList";
-import { CopySummaryButton } from "@/components/dashboard/CopySummaryButton";
 import { DepartmentStats, parseWorkweekSetting } from "@/components/dashboard/DepartmentStats";
 import { InterventionList } from "@/components/dashboard/InterventionList";
 import { MetricsTiles } from "@/components/dashboard/MetricsTiles";
@@ -9,6 +8,7 @@ import { MilestoneDue } from "@/components/dashboard/MilestoneDue";
 import { parseDashboardSettings, rawAnswersOf } from "@/components/dashboard/NewcomerCard";
 import { NewcomerOverview } from "@/components/dashboard/NewcomerOverview";
 import { TodaySubmissions } from "@/components/dashboard/TodaySubmissions";
+import { Badge } from "@/components/ui/badge";
 import { requireRole } from "@/lib/auth/guard";
 import { listAlertsWithSubmission } from "@/lib/db/queries/alerts";
 import { listDepartments } from "@/lib/db/queries/departments";
@@ -23,25 +23,12 @@ import { buildHrDashboard } from "@/lib/metrics/dashboard";
 import { departmentStats7d } from "@/lib/metrics/department";
 import { newcomerOverview } from "@/lib/metrics/newcomer";
 import { alertRates } from "@/lib/metrics/rates";
-import { buildDailySummary } from "@/lib/metrics/summary";
 import { formatDate, taipeiDateOf } from "@/lib/time";
 
-export const metadata: Metadata = { title: "人資儀表板" };
+export const metadata: Metadata = { title: "營運儀表板" };
 
-const HR_PATH = "/hr";
-const BASE_URL_MISSING = "APP_BASE_URL 未設定";
-
-/**
- * `APP_BASE_URL` (§4) for the one-line summary link. Missing or blank throws
- * instead of silently producing 「…｜/」, a link HR would paste into the LINE
- * group and nobody could open (same principle as `parseDashboardSettings` /
- * `parseWorkweekSetting`: no silent defaults).
- */
-function requireBaseUrl(): string {
-  const baseUrl = process.env.APP_BASE_URL;
-  if (baseUrl === undefined || baseUrl.trim() === "") throw new Error(BASE_URL_MISSING);
-  return baseUrl;
-}
+const CEO_PATH = "/ceo";
+const READ_ONLY_LABEL = "唯讀";
 
 /** Parsed questions of the given form versions, keyed by id (unparseable / missing versions are left out). */
 async function loadVersions(ids: Iterable<string>): Promise<Map<string, readonly Question[]>> {
@@ -57,33 +44,35 @@ async function loadVersions(ids: Iterable<string>): Promise<Map<string, readonly
 }
 
 /**
- * /hr (CLAUDE.md §8, PLAN T20 + T24): 今日交件, 待處理預警, HR 介入清單,
- * the one-line summary, 近 7 日各部門統計, 三指標, 新人總覽 and 節點到期清單.
- * hr / admin only (§10; newcomer, manager and ceo get 403 from `requireRole`).
- * The page reads rows, takes `now` exactly once, hands everything to the pure
- * functions (`buildHrDashboard` D-31; `alertRates` / `departmentStats7d` /
- * `newcomerOverview` D-33) and renders; every number is derived there with
- * that `now`. The only write on this page is the clipboard copy.
+ * /ceo (CLAUDE.md §8「與 /hr 相同唯讀，僅儀表板與新人總覽，無操作按鈕」,
+ * PLAN T26): the same blocks as /hr, fed by the same `buildHrDashboard(now)`
+ * and the same lib/metrics pure functions, so the two roles can never read
+ * different numbers off the same database.
  *
- * Responses are loaded through the daily logs they target
- * (`listResponsesForSubmissions`), so the population's logs up to today are
- * read without a start date (as /manager does); a response made in the
- * last 7 days may target an older log and must still reach the 需 HR 協助
- * segment (A04). `response.status` / `response.comment` are resolved by
- * slot through each response's own form version (D-17), and the responder's
- * role comes from `listProfiles()` so an HR stand-in is labelled (D-35).
+ * `requireRole(['ceo'])` — admin is deliberately NOT in the list: §10 gives
+ * admin the HR view (`homeFor('admin') === '/hr'`), and /ceo exists only to
+ * strip the operations. manager / newcomer / hr / admin therefore get 403,
+ * and ceo gets 403 on /hr, /manager and /admin from those pages' own guards.
  *
- * `listProfiles()` is also handed to `alertRates` so `sample` accounts can
- * never reach the three metrics (A02), even though the alert query is already
- * scoped to `activeNewcomers()`. Milestones are loaded in full (not
- * `pendingOnly`): 新人總覽's 階段 needs all three rows (`stageOf`), while
- * 節點到期 drops the done ones itself.
+ * Read-only means literally no `button` and no `form` inside `<main>` (the
+ * logout button lives in the app header, app/(front)/layout.tsx):
+ *   - no 「複製今日一行摘要」 (`CopySummaryButton`), so `APP_BASE_URL` is not
+ *     read here either — the one-line summary is HR's tool (§8, A13);
+ *   - no 回應 drawer (that is /manager, §10 row 4) and no CSV export
+ *     (§10 row 9 allows ceo, but the export lives on /hr/newcomer/[id],
+ *     which ceo has no link to);
+ *   - every newcomer name renders as plain text: `hrefFor={null}` on
+ *     `NewcomerOverview`, `AlertList` and `InterventionList`, so the page
+ *     contains no `/hr/newcomer` or `/manager/newcomer` link the CEO would
+ *     only meet a 403 (or an HR-only page) behind.
+ *
+ * Like /hr the page takes `now` exactly once, reads rows, and leaves every
+ * number to the pure functions; nothing here compares times.
  */
-export default async function HrPage() {
-  await requireRole(["hr", "admin"], { next: HR_PATH });
+export default async function CeoPage() {
+  await requireRole(["ceo"], { next: CEO_PATH });
   const now = new Date();
   const today = taipeiDateOf(now);
-  const baseUrl = requireBaseUrl();
 
   const [rawSettings, newcomers, departments, profiles] = await Promise.all([
     getSettings(),
@@ -104,7 +93,7 @@ export default async function HrPage() {
    * `listAlertsWithSubmission()` inner-joins on `deleted_at is null` (A05 (1)),
    * so every row here belongs to a live log; lib/metrics' alert type carries an
    * optional `submission.deleted_at` as a second gate, and spelling the fact out
-   * is what lets these rows satisfy it.
+   * is what lets these rows satisfy it (same as /hr).
    */
   const metricAlerts = alerts.map((alert) => ({
     ...alert,
@@ -138,7 +127,6 @@ export default async function HrPage() {
       },
     },
   });
-  const summary = buildDailySummary({ ...dashboard.summary, baseUrl });
   const rates = alertRates({
     alerts: metricAlerts,
     responses,
@@ -166,16 +154,20 @@ export default async function HrPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-baseline justify-between gap-2">
-        <h1 className="text-xl font-semibold">人資儀表板</h1>
+        <h1 className="text-xl font-semibold">
+          營運儀表板
+          <Badge variant="outline" className="ml-2 align-middle">
+            {READ_ONLY_LABEL}
+          </Badge>
+        </h1>
         <p className="text-sm text-muted-foreground">{formatDate(today)}</p>
       </div>
-      <CopySummaryButton text={summary} />
       <TodaySubmissions today={dashboard.today} />
-      <AlertList entries={dashboard.pendingAlerts} />
-      <InterventionList intervention={dashboard.intervention} />
+      <AlertList entries={dashboard.pendingAlerts} hrefFor={null} />
+      <InterventionList intervention={dashboard.intervention} hrefFor={null} />
       <DepartmentStats stats={stats} />
       <MetricsTiles rates={rates} />
-      <NewcomerOverview rows={overview} departments={departments} />
+      <NewcomerOverview rows={overview} departments={departments} hrefFor={null} />
       <MilestoneDue milestones={dashboard.milestones} />
     </div>
   );

@@ -474,6 +474,76 @@ describe("buildTimeline: 信義總監 opens 洪湘庭", () => {
   });
 });
 
+describe("buildTimeline: closed and late-responded alerts (§7 A1 full path)", () => {
+  // Darren's two logs carry no fixture alert, so they are the clean place to
+  // hang the two states the §11 rows never reach: a `closed` alert (a
+  // resubmitted log whose R1 no longer holds, §7 「不再成立的 open 預警改
+  // closed(reason='resubmitted')」) and a `responded` one answered after the
+  // 24h threshold (`responded_late`, statistics only).
+  const DARREN_0903 = logId(5);
+  const DARREN_0902 = logId(1);
+  const EXTRA_ALERTS: (TimelineAlertLike & { closed_reason: string | null })[] = [
+    {
+      id: "alert-closed",
+      submission_id: DARREN_0903,
+      rule_key: "R1",
+      detail: { items: [{ i: 1, plan_text: "文風19 木工維修敲定", status: "持續中", reason: null }] } as Json,
+      status: "closed",
+      created_at: "2026-09-03T17:01:00+08:00",
+      responded_at: null,
+      closed_reason: "resubmitted",
+    },
+    {
+      id: "alert-late",
+      submission_id: DARREN_0902,
+      rule_key: "R2",
+      detail: { text: "颱風假無法進場" } as Json,
+      status: "responded",
+      // 9/2 17:05 → 9/4 09:20 是 40.25h，超過 24h 門檻 → responded_late
+      created_at: "2026-09-02T17:05:00+08:00",
+      responded_at: "2026-09-04T09:20:00+08:00",
+      closed_reason: null,
+    },
+  ];
+
+  const days = buildTimeline({
+    logs: logsOf(newcomer("darren").id),
+    versions: VERSIONS,
+    alerts: EXTRA_ALERTS,
+    responses: [],
+    responders: RESPONDERS,
+    now: CLOCK_0904_1800,
+    thresholdHours: DASHBOARD_SETTINGS.thresholdHours,
+  });
+
+  it("derives closed / responded_late and keeps the detail lines", () => {
+    expect(days.map((d) => d.date)).toEqual(["2026-09-03", "2026-09-02"]);
+    expect(days[0].alerts.map((a) => [a.id, a.ruleKey, a.state])).toEqual([
+      ["alert-closed", "R1", "closed"],
+    ]);
+    expect(days[0].alerts[0].lines).toEqual(["項目一：文風19 木工維修敲定｜持續中"]);
+    expect(days[1].alerts.map((a) => [a.id, a.ruleKey, a.state])).toEqual([
+      ["alert-late", "R2", "responded_late"],
+    ]);
+    // Lateness is statistics only (§7 A1): both read 「已回應」 to the manager.
+    expect(alertStateLabel("responded_late")).toBe(alertStateLabel("responded"));
+  });
+
+  it("renders 已關閉 for the closed alert and 已回應 for the late one", () => {
+    const html = renderToStaticMarkup(<Timeline days={days} />);
+    expect(html).toContain('data-state="closed"');
+    expect(html).toContain('data-state="responded_late"');
+    const text = textOf(html);
+    expect(text).toContain("進度預警｜已關閉");
+    expect(text).toContain("卡點預警｜已回應");
+    expect(text).toContain("颱風假無法進場");
+    // The response section is driven by the response rows, not by the alert
+    // state: no manager_response was handed in, so both days keep the empty
+    // state (the alert badge is the only thing that changed).
+    expect(text.match(new RegExp(NO_RESPONSE_LABEL, "g"))).toHaveLength(2);
+  });
+});
+
 describe("alertDetailLines / AlertBadge", () => {
   it("maps R1 → 進度, R2 → 卡點 and the derived states to their labels", () => {
     expect(alertKindLabel("R1")).toBe("進度");

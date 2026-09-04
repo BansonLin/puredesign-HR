@@ -154,6 +154,9 @@ export default async function ManagerWeeklyPage({ searchParams }: PageProps) {
       {title}
       {onBehalfNotice}
       <WeeklyForm
+        // Remount on every change of target: the wrapper's 「已送出週回饋」
+        // card is local state and must not survive switching newcomer.
+        key={selected?.id ?? ""}
         newcomers={newcomers.map((newcomer) => ({ id: newcomer.id, display_name: newcomer.display_name }))}
         selectedId={selected?.id ?? null}
         questions={questions}

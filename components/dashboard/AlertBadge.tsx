@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { ALERT_RULE_LABELS, alertRuleLabel } from "@/lib/metrics/summary";
 import type { AlertState } from "@/lib/rules/derived";
 
 /**
@@ -8,11 +9,13 @@ import type { AlertState } from "@/lib/rules/derived";
  * 已關閉. `responded_late` reads 「已回應」 like `responded` — lateness only
  * affects statistics (§7 A1). Pure presentation; the caller derives `state`
  * with its own `now`.
+ *
+ * The rule → 進度 / 卡點 mapping is NOT restated here: it lives once in
+ * lib/metrics/summary.ts (`ALERT_RULE_LABELS`, A13), which the one-line
+ * summary and the /hr lists already use, and is re-exported under this
+ * module's historical names so the badge and the summary can never drift.
  */
-export const ALERT_KIND_LABELS: Readonly<Record<string, string>> = {
-  R1: "進度",
-  R2: "卡點",
-};
+export const ALERT_KIND_LABELS = ALERT_RULE_LABELS;
 
 export const ALERT_STATE_LABELS: Readonly<Record<AlertState, string>> = {
   open: "待回應",
@@ -23,9 +26,7 @@ export const ALERT_STATE_LABELS: Readonly<Record<AlertState, string>> = {
 };
 
 /** 「進度」 for R1, 「卡點」 for R2; an unknown rule key is shown as is. */
-export function alertKindLabel(ruleKey: string): string {
-  return ALERT_KIND_LABELS[ruleKey] ?? ruleKey;
-}
+export const alertKindLabel = alertRuleLabel;
 
 export function alertStateLabel(state: AlertState): string {
   return ALERT_STATE_LABELS[state];

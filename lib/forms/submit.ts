@@ -40,6 +40,13 @@ import { validateAnswers } from "@/lib/forms/validate";
 import type { RulesSettings } from "@/lib/rules/constants";
 import { reconcile, runRules } from "@/lib/rules/run";
 import type { ExistingAlertLike, ReconcileResult } from "@/lib/rules/types";
+
+/**
+ * Re-exported so callers of the prepare* functions (their tests included)
+ * describe their alert rows through this module alone, without reaching
+ * into lib/rules/types.
+ */
+export type { ExistingAlertLike } from "@/lib/rules/types";
 import {
   isDateString,
   isFriday,

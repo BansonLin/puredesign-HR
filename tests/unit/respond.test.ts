@@ -7,12 +7,13 @@ import {
   FORM_ERROR_KEY,
   ownResponseAnswers,
   prepareResponse,
+  type ExistingAlertLike,
   type PrepareResponseInput,
   type ResponseRowLike,
   type ResponseTargetLike,
   type VersionLike,
 } from "@/lib/forms/submit";
-import type { ExistingAlertLike } from "@/lib/rules/types";
+
 import {
   BASE_PROFILES,
   DEPARTMENTS,

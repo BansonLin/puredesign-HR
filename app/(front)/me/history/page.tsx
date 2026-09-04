@@ -20,17 +20,27 @@ export const metadata: Metadata = { title: "歷史" };
 
 const HISTORY_PATH = "/me/history";
 
-/** Parsed questions of the given form versions, keyed by id (unparseable / missing versions are left out). */
-async function loadVersions(ids: Iterable<string>): Promise<Map<string, readonly Question[]>> {
+/**
+ * Parsed questions of the given form versions, keyed by id. A version that
+ * cannot be used is left out of the map either way, but the two reasons are
+ * kept apart for the reader (§6 history is rendered with the version it was
+ * written against): the row is gone, or the row exists and its `questions`
+ * jsonb does not parse (`unparseable`).
+ */
+async function loadVersions(
+  ids: Iterable<string>,
+): Promise<{ versions: Map<string, readonly Question[]>; unparseable: Set<string> }> {
   const unique = [...new Set(ids)];
   const rows = await Promise.all(unique.map((id) => getVersionById(id)));
   const versions = new Map<string, readonly Question[]>();
+  const unparseable = new Set<string>();
   for (const row of rows) {
     if (!row) continue;
     const parsed = parseQuestions(row.questions);
     if (parsed.ok) versions.set(row.id, parsed.questions);
+    else unparseable.add(row.id);
   }
-  return versions;
+  return { versions, unparseable };
 }
 
 async function loadResponders(ids: Iterable<string>): Promise<Map<string, ResponderLike>> {
@@ -65,7 +75,7 @@ export default async function HistoryPage() {
   const settings = parseDashboardSettings(rawSettings);
 
   const responses = await listResponsesForSubmissions(logs.map((log) => log.id));
-  const [versions, responders] = await Promise.all([
+  const [{ versions, unparseable }, responders] = await Promise.all([
     loadVersions([
       ...logs.map((log) => log.form_version_id),
       ...responses.map((response) => response.form_version_id),
@@ -84,6 +94,7 @@ export default async function HistoryPage() {
     responses,
     weekly,
     responders,
+    unparseableVersionIds: unparseable,
     now,
     thresholdHours: settings.thresholdHours,
   });

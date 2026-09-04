@@ -8,6 +8,7 @@ import {
   HISTORY_NO_WEEKLY_LABEL,
   HISTORY_ON_BEHALF_LABEL,
   HISTORY_VERSION_MISSING_LABEL,
+  HISTORY_VERSION_UNPARSEABLE_LABEL,
   HistoryList,
   logSummaryFields,
   NO_HISTORY_LABEL,
@@ -147,7 +148,7 @@ describe("buildHistoryRows — ordering and summary", () => {
     expect(rows.map((r) => r.dateLabel)).toEqual(["9/3", "9/2"]);
     expect(rows.map((r) => r.weekStart)).toEqual(["2026-08-31", "2026-08-31"]);
     expect(rows[0].submittedAtLabel).toBe("17:01");
-    expect(rows.every((r) => !r.versionMissing)).toBe(true);
+    expect(rows.every((r) => r.versionError === null)).toBe(true);
   });
 
   it("the summary uses the log's own version labels and only visible, answered questions", () => {
@@ -169,11 +170,22 @@ describe("buildHistoryRows — ordering and summary", () => {
     expect(summary.map((f) => f.key).slice(0, 3)).toEqual(["r1_status", "r2_status", "r3_status"]);
   });
 
-  it("a missing version yields versionMissing and an empty summary", () => {
+  it("a missing version yields versionError 'missing' and an empty summary", () => {
     const rows = rowsOf("darren", CLOCK_0904_1800, { versions: new Map() });
-    expect(rows[0].versionMissing).toBe(true);
+    expect(rows[0].versionError).toBe("missing");
     expect(rows[0].summary).toEqual([]);
     expect(logSummaryFields(null, {})).toEqual([]);
+  });
+
+  it("a version that exists but does not parse is reported as unparseable, not as missing", () => {
+    const rows = rowsOf("darren", CLOCK_0904_1800, {
+      versions: new Map(),
+      unparseableVersionIds: new Set([DAILY_V1]),
+    });
+    expect(rows.every((r) => r.versionError === "unparseable")).toBe(true);
+    const html = renderToStaticMarkup(<HistoryList rows={rows} />);
+    expect(html).toContain(HISTORY_VERSION_UNPARSEABLE_LABEL);
+    expect(html).not.toContain(HISTORY_VERSION_MISSING_LABEL);
   });
 
   it("ignores logs without log_date and alerts of other people's logs", () => {
@@ -222,8 +234,11 @@ describe("buildHistoryRows — §11 acceptance rows", () => {
       { key: "weekly.improve", label: "要改的一件事", value: expected.answers.improve },
       { key: "weekly.next_focus", label: "下週重點", value: expected.answers.next_focus },
     ]);
-    // 9/2 is in the same week: the same feedback shows there, with no response.
-    expect(d0902.weekly.map((w) => w.id)).toEqual([weekly.id]);
+    // 9/2 falls in the SAME week: the feedback belongs to 9/3, the newest row
+    // of that week, and is not repeated here (D-45).
+    expect(d0903.showWeekly).toBe(true);
+    expect(d0902.showWeekly).toBe(false);
+    expect(d0902.weekly).toEqual([]);
     expect(d0902.responses).toEqual([]);
     expect(d0902.alerts).toEqual([]);
   });
@@ -264,6 +279,33 @@ describe("buildHistoryRows — §11 acceptance rows", () => {
     expect(h0903.alerts).toEqual([]);
     expect(h0903.responses).toEqual([]);
     expect(h0903.weekly).toEqual([]);
+  });
+
+  it("cross-version: a log written against v2 is summarised with v2 labels, the older one with v1", () => {
+    // §6: history is rendered with the labels of the version the log was
+    // written against. v2 keeps every v1 key (keys are immutable after
+    // publish) and only renames one label.
+    const V2_ID = "daily-v2";
+    const v1 = VERSIONS.get(DAILY_V1)!;
+    const v2 = v1.map((q) => (q.key === "r1_status" ? { ...q, label: "項目一狀態(v2)" } : q));
+    const versions = new Map(VERSIONS);
+    versions.set(V2_ID, v2);
+
+    const darren = newcomerId("darren");
+    const logs = LOGS.filter((l) => l.user_id === darren).map((log) =>
+      log.log_date === "2026-09-03" ? { ...log, form_version_id: V2_ID } : log,
+    );
+    const [d0903, d0902] = rowsOf("darren", CLOCK_0904_1800, { logs, versions });
+
+    const labelOfR1 = (row: (typeof d0903)) => row.summary.find((f) => f.key === "r1_status")!.label;
+    expect(d0903.date).toBe("2026-09-03");
+    expect(labelOfR1(d0903)).toBe("項目一狀態(v2)");
+    expect(d0902.date).toBe("2026-09-02");
+    expect(labelOfR1(d0902)).toBe("昨日項目一狀態");
+
+    const text = textOf(renderToStaticMarkup(<HistoryList rows={[d0903, d0902]} />));
+    expect(text).toContain("項目一狀態(v2)完成");
+    expect(text).toContain("昨日項目一狀態昨日無此項");
   });
 
   it("a response or weekly feedback written by hr / admin is flagged on_behalf", () => {
@@ -308,7 +350,9 @@ describe("HistoryList", () => {
     expect(text).toContain("臨時新增工作文風19 安排木工維修隱藏門");
     expect(text).toContain(HISTORY_NO_ALERTS_LABEL);
     expect(text).toContain(`工務主任9/4 09:20${RESPONSE_STATUS_NO_ACTION}`);
-    expect(text).toContain("週回饋（8/31 起）");
+    // The 8/31 feedback appears on the 9/3 row only, not again on 9/2 (D-45).
+    expect(text.match(/週回饋（8\/31 起）/g)).toHaveLength(1);
+    expect(text.match(/做得好的一件事/g)).toHaveLength(1);
     expect(text).toContain("做得好的一件事案場紀律好，拍照上傳準時");
     expect(text).toContain("要改的一件事木工協調要自己先問工班時間");
     expect(text).toContain("下週重點文風19 木工維修獨立收尾");

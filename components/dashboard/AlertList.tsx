@@ -40,8 +40,12 @@ export type PendingAlertLike = DashboardAlert & { detail?: unknown };
 
 export interface AlertListProps<N extends DashboardNewcomer, A extends PendingAlertLike> {
   entries: readonly PendingAlertEntry<N, A>[];
-  /** Link of the newcomer name; defaults to `defaultNewcomerHref`. */
-  hrefFor?: (newcomerId: string) => string;
+  /**
+   * Link of the newcomer name; defaults to `defaultNewcomerHref`. `null`
+   * renders plain text — /ceo is read-only and has no newcomer page to reach
+   * (§8, PLAN T26), same convention as `NewcomerOverview`.
+   */
+  hrefFor?: ((newcomerId: string) => string) | null;
 }
 
 export function AlertList<N extends DashboardNewcomer, A extends PendingAlertLike>({
@@ -64,6 +68,7 @@ export function AlertList<N extends DashboardNewcomer, A extends PendingAlertLik
         <ul className="flex flex-col gap-2">
           {entries.map((entry) => {
             const lines = alertDetailLines(entry.alert.rule_key, entry.alert.detail);
+            const href = hrefFor === null ? null : hrefFor(entry.newcomer.id);
             return (
               <li
                 key={entry.alert.id}
@@ -74,12 +79,16 @@ export function AlertList<N extends DashboardNewcomer, A extends PendingAlertLik
                 data-state={entry.state}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href={hrefFor(entry.newcomer.id)}
-                    className="flex min-h-11 items-center text-base font-semibold underline-offset-4 hover:underline"
-                  >
-                    {entry.newcomer.display_name}
-                  </Link>
+                  {href === null ? (
+                    <span className="text-base font-semibold">{entry.newcomer.display_name}</span>
+                  ) : (
+                    <Link
+                      href={href}
+                      className="flex min-h-11 items-center text-base font-semibold underline-offset-4 hover:underline"
+                    >
+                      {entry.newcomer.display_name}
+                    </Link>
+                  )}
                   <Badge variant="default" data-rule={entry.alert.rule_key}>
                     {entry.label}預警
                   </Badge>

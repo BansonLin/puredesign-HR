@@ -7,6 +7,7 @@ import {
   ON_BEHALF_BADGE,
   SUBMIT_WEEKLY_LABEL,
   UPDATE_WEEKLY_LABEL,
+  WEEKLY_SAVED_TITLE,
   WeeklyFormView,
 } from "@/app/(front)/manager/weekly/WeeklyForm";
 import type { FormActionState } from "@/components/forms/FormRenderer";
@@ -96,5 +97,19 @@ describe("WeeklyFormView", () => {
 
   it("HR on behalf shows the badge", () => {
     expect(render({ onBehalf: true })).toContain(ON_BEHALF_BADGE);
+  });
+
+  it("the 「已送出週回饋」 card is absent on a fresh render (it only follows a submit)", () => {
+    // Scope of this assertion: it only pins the INITIAL state of the wrapper
+    // (`saved` starts false) plus the existence of WEEKLY_SAVED_TITLE and the
+    // card's data-testid. The actual reset on target change is React
+    // reconciliation driven by `key={selected?.id ?? ""}` in page.tsx (D-47),
+    // which this test cannot reach: `saved` only flips through a real submit,
+    // and Phase 1 has no jsdom. The remount behaviour is covered by e2e
+    // (T27) instead.
+    for (const html of [render(), render({ selectedId: null }), render({ editing: true })]) {
+      expect(html).not.toContain(WEEKLY_SAVED_TITLE);
+      expect(html).not.toContain('data-testid="weekly-saved-card"');
+    }
   });
 });

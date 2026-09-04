@@ -10,6 +10,7 @@ import { alertState, type AlertLike, type AlertState } from "@/lib/rules/derived
 import {
   formatDate,
   formatTaipei,
+  toInstant,
   weekStartMonday,
   type DateString,
   type Instant,
@@ -34,7 +35,14 @@ import {
  *   - the weekly feedback of the week the day falls in
  *     (`week_start = weekStartMonday(log_date)`), three lines read through
  *     the `weekly.good` / `weekly.improve` / `weekly.next_focus` slots with
- *     the labels of the feedback's own version.
+ *     the labels of the feedback's own version — shown on the NEWEST row of
+ *     that week only (`showWeekly`), so one feedback is not repeated on every
+ *     day of its week.
+ *
+ * A log whose form version cannot be read is reported two ways (they mean
+ * different things to HR): the version row is gone (`missing`) or it exists
+ * but its `questions` jsonb does not parse (`unparseable`, listed by the page
+ * in `unparseableVersionIds`).
  */
 
 // ---------------------------------------------------------------------------
@@ -124,6 +132,9 @@ export interface HistoryWeeklyView {
   lines: HistoryField[];
 }
 
+/** Why a log's questions could not be read (null = they could). */
+export type VersionError = "missing" | "unparseable";
+
 export interface HistoryRow {
   logId: string;
   date: DateString;
@@ -133,11 +144,14 @@ export interface HistoryRow {
   submittedAtLabel: string;
   /** Monday of the week `date` falls in. */
   weekStart: DateString;
-  /** This log's version is not in `versions`: labels cannot be read. */
-  versionMissing: boolean;
+  /** Non-null when this log's form version could not be read, and why. */
+  versionError: VersionError | null;
   summary: HistoryField[];
   alerts: HistoryAlertView[];
   responses: HistoryResponseView[];
+  /** This is the newest row of its week, so it carries the week's feedback. */
+  showWeekly: boolean;
+  /** The week's feedback; empty on rows where `showWeekly` is false. */
   weekly: HistoryWeeklyView[];
 }
 
@@ -154,6 +168,12 @@ export interface BuildHistoryRowsInput {
   weekly: readonly HistoryWeeklyLike[];
   /** Responder / author profiles by id. */
   responders: ReadonlyMap<string, ResponderLike>;
+  /**
+   * Version ids that exist but whose `questions` jsonb does not parse. They
+   * are absent from `versions` like a missing row, and only this set tells
+   * the two apart for the reader.
+   */
+  unparseableVersionIds?: ReadonlySet<string>;
   now: Instant;
   thresholdHours: number;
 }
@@ -162,8 +182,18 @@ const ON_BEHALF_ROLES: readonly Enums<"user_role">[] = ["hr", "admin"];
 const UNKNOWN_PERSON = "（不明填寫者）";
 const WEEKLY_SLOTS: readonly Slot[] = ["weekly.good", "weekly.improve", "weekly.next_focus"];
 
+/** Lexicographic order — for `YYYY-MM-DD` dates and rule keys only, never for timestamps. */
 function compareIso(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Chronological order of two timestamptz values. String comparison would be
+ * wrong here: the same instant can arrive as `...T09:10:00+08:00` or
+ * `...T01:10:00Z`, so the offsets are resolved through lib/time first.
+ */
+function compareInstant(a: string, b: string): number {
+  return toInstant(a).getTime() - toInstant(b).getTime();
 }
 
 function labelOf(questions: readonly Question[] | null, slot: Slot): string | null {
@@ -200,15 +230,31 @@ export function logSummaryFields(questions: readonly Question[] | null, answers:
 }
 
 export function buildHistoryRows(input: BuildHistoryRowsInput): HistoryRow[] {
-  const { logs, versions, alerts, responses, weekly, responders, now, thresholdHours } = input;
+  const {
+    logs,
+    versions,
+    alerts,
+    responses,
+    weekly,
+    responders,
+    unparseableVersionIds,
+    now,
+    thresholdHours,
+  } = input;
 
   const dated = logs
     .filter((log): log is HistoryLogLike & { log_date: string } => log.log_date !== null)
     .sort((a, b) => compareIso(b.log_date, a.log_date));
 
+  // Rows are newest first, so the first row of a week is its newest one and
+  // the only one that shows that week's feedback.
+  const weeksShown = new Set<string>();
+
   return dated.map((log) => {
     const questions = versions.get(log.form_version_id) ?? null;
     const weekStart = weekStartMonday(log.log_date);
+    const showWeekly = !weeksShown.has(weekStart);
+    weeksShown.add(weekStart);
 
     const dayAlerts: HistoryAlertView[] = alerts
       .filter((alert) => alert.submission_id === log.id)
@@ -223,7 +269,7 @@ export function buildHistoryRows(input: BuildHistoryRowsInput): HistoryRow[] {
 
     const dayResponses: HistoryResponseView[] = responses
       .filter((response) => response.target_submission_id === log.id)
-      .sort((a, b) => compareIso(a.submitted_at, b.submitted_at))
+      .sort((a, b) => compareInstant(a.submitted_at, b.submitted_at))
       .map((response) => {
         const responseQuestions = versions.get(response.form_version_id) ?? null;
         const slots: SlotValues = responseQuestions
@@ -240,9 +286,9 @@ export function buildHistoryRows(input: BuildHistoryRowsInput): HistoryRow[] {
         };
       });
 
-    const weekFeedback: HistoryWeeklyView[] = weekly
+    const weekFeedback: HistoryWeeklyView[] = (showWeekly ? weekly : [])
       .filter((entry) => entry.week_start === weekStart)
-      .sort((a, b) => compareIso(a.submitted_at, b.submitted_at))
+      .sort((a, b) => compareInstant(a.submitted_at, b.submitted_at))
       .map((entry) => {
         const weeklyQuestions = versions.get(entry.form_version_id) ?? null;
         const slots: SlotValues = weeklyQuestions ? bySlot(weeklyQuestions, rawAnswersOf(entry.answers)) : {};
@@ -271,10 +317,16 @@ export function buildHistoryRows(input: BuildHistoryRowsInput): HistoryRow[] {
       dateLabel: formatDate(log.log_date, "M/d"),
       submittedAtLabel: formatTaipei(log.submitted_at, "HH:mm"),
       weekStart,
-      versionMissing: questions === null,
+      versionError:
+        questions !== null
+          ? null
+          : unparseableVersionIds?.has(log.form_version_id)
+            ? "unparseable"
+            : "missing",
       summary: logSummaryFields(questions, log.answers),
       alerts: dayAlerts,
       responses: dayResponses,
+      showWeekly,
       weekly: weekFeedback,
     };
   });
@@ -286,6 +338,7 @@ export function buildHistoryRows(input: BuildHistoryRowsInput): HistoryRow[] {
 
 export const NO_HISTORY_LABEL = "還沒有日誌";
 export const HISTORY_VERSION_MISSING_LABEL = "找不到這筆日誌的表單版本，無法顯示內容";
+export const HISTORY_VERSION_UNPARSEABLE_LABEL = "表單版本內容無法解析，無法顯示這筆日誌的內容";
 export const WEEKLY_VERSION_MISSING_LABEL = "找不到週回饋的表單版本，無法顯示內容";
 export const HISTORY_NO_ALERTS_LABEL = "無預警";
 export const HISTORY_NO_RESPONSE_LABEL = "主管尚未回應";
@@ -332,8 +385,12 @@ function HistoryCard({ row }: { row: HistoryRow }) {
 
       <section className="flex flex-col gap-1" aria-label="日誌摘要">
         <SectionTitle>日誌摘要</SectionTitle>
-        {row.versionMissing ? (
-          <p className="text-sm text-destructive">{HISTORY_VERSION_MISSING_LABEL}</p>
+        {row.versionError !== null ? (
+          <p className="text-sm text-destructive">
+            {row.versionError === "unparseable"
+              ? HISTORY_VERSION_UNPARSEABLE_LABEL
+              : HISTORY_VERSION_MISSING_LABEL}
+          </p>
         ) : (
           <dl className="flex flex-col gap-1 text-sm">
             {row.summary.map((field) => (
@@ -390,32 +447,34 @@ function HistoryCard({ row }: { row: HistoryRow }) {
         )}
       </section>
 
-      <section className="flex flex-col gap-2" aria-label="週回饋">
-        <SectionTitle>週回饋（{row.weekly[0]?.weekStartLabel ?? formatDate(row.weekStart, "M/d")} 起）</SectionTitle>
-        {row.weekly.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{HISTORY_NO_WEEKLY_LABEL}</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {row.weekly.map((entry) => (
-              <li key={entry.id} className="flex flex-col gap-1 text-sm" data-testid="history-weekly">
-                <PersonLine name={entry.authorName} onBehalf={entry.onBehalf} when={entry.submittedAtLabel} />
-                {entry.versionMissing ? (
-                  <p className="text-destructive">{WEEKLY_VERSION_MISSING_LABEL}</p>
-                ) : (
-                  <dl className="flex flex-col gap-0.5">
-                    {entry.lines.map((line) => (
-                      <div key={line.key} className="flex flex-col gap-0.5 sm:flex-row sm:gap-2" data-testid="weekly-line">
-                        <dt className="shrink-0 text-muted-foreground sm:w-40">{line.label}</dt>
-                        <dd className="min-w-0 break-words">{line.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {row.showWeekly ? (
+        <section className="flex flex-col gap-2" aria-label="週回饋">
+          <SectionTitle>週回饋（{row.weekly[0]?.weekStartLabel ?? formatDate(row.weekStart, "M/d")} 起）</SectionTitle>
+          {row.weekly.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{HISTORY_NO_WEEKLY_LABEL}</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {row.weekly.map((entry) => (
+                <li key={entry.id} className="flex flex-col gap-1 text-sm" data-testid="history-weekly">
+                  <PersonLine name={entry.authorName} onBehalf={entry.onBehalf} when={entry.submittedAtLabel} />
+                  {entry.versionMissing ? (
+                    <p className="text-destructive">{WEEKLY_VERSION_MISSING_LABEL}</p>
+                  ) : (
+                    <dl className="flex flex-col gap-0.5">
+                      {entry.lines.map((line) => (
+                        <div key={line.key} className="flex flex-col gap-0.5 sm:flex-row sm:gap-2" data-testid="weekly-line">
+                          <dt className="shrink-0 text-muted-foreground sm:w-40">{line.label}</dt>
+                          <dd className="min-w-0 break-words">{line.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
     </article>
   );
 }

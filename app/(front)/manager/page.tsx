@@ -25,7 +25,7 @@ const MANAGER_PATH = "/manager";
 const WEEKLY_PATH = "/manager/weekly";
 
 const ON_BEHALF_MODE_TITLE = "HR 代填模式";
-const ON_BEHALF_MODE_TEXT = "您看到的是全部部門的 active 新人；在此回應預警或填週回饋會標註為 HR 代填。";
+const ON_BEHALF_MODE_TEXT = "您看到的是全部部門的在職新人；在此回應預警或填週回饋會標註為 HR 代填。";
 const NO_DEPARTMENT_TEXT = "您的帳號尚未設定部門，請聯絡 HR。";
 const NO_NEWCOMERS_TEXT = "目前沒有在職新人。";
 const WEEKLY_REMINDER_TEXT = "週回饋未填";

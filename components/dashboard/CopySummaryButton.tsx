@@ -29,8 +29,14 @@ export interface CopySummaryButtonProps {
   text: string;
 }
 
-/** `navigator.clipboard.writeText` when the browser exposes it, else null. */
-function clipboardWriter(): ((text: string) => Promise<void>) | null {
+/**
+ * `navigator.clipboard.writeText` bound to the clipboard, or `null` when the
+ * browser does not expose it (the LINE in-app browser, an insecure origin) —
+ * the point where the component decides between copying and the select-and-
+ * long-press fallback. Exported as a pure function so that decision is unit
+ * tested without a DOM (tests/unit/hr-dashboard.test.tsx).
+ */
+export function clipboardWriter(): ((text: string) => Promise<void>) | null {
   if (typeof navigator === "undefined") return null;
   const clipboard = navigator.clipboard;
   if (!clipboard || typeof clipboard.writeText !== "function") return null;

@@ -14,7 +14,7 @@ import { bySlot, readYesterdayPlan, type SlotValues } from "@/lib/forms/resolve"
 import type { Question } from "@/lib/forms/schema";
 import type { Slot } from "@/lib/forms/slots";
 import { alertState, type AlertLike, type AlertState } from "@/lib/rules/derived";
-import { formatDate, formatTaipei, type DateString, type Instant } from "@/lib/time";
+import { formatDate, formatTaipei, toInstant, type DateString, type Instant } from "@/lib/time";
 
 /**
  * Newcomer timeline (CLAUDE.md §8 /manager/newcomer/[id], PLAN T17): one
@@ -183,8 +183,18 @@ export function alertDetailLines(ruleKey: string, detail: unknown): string[] {
   return [];
 }
 
+/** Lexicographic order — for `YYYY-MM-DD` dates and rule keys only, never for timestamps. */
 function compareIso(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Chronological order of two timestamptz values. String comparison would be
+ * wrong here: the same instant can arrive as `...T09:10:00+08:00` or
+ * `...T01:10:00Z`, so the offsets are resolved through lib/time first.
+ */
+function compareInstant(a: string, b: string): number {
+  return toInstant(a).getTime() - toInstant(b).getTime();
 }
 
 export function buildTimeline(input: BuildTimelineInput): TimelineDay[] {
@@ -243,7 +253,7 @@ export function buildTimeline(input: BuildTimelineInput): TimelineDay[] {
 
     const dayResponses: TimelineResponseView[] = responses
       .filter((response) => response.target_submission_id === log.id)
-      .sort((a, b) => compareIso(a.submitted_at, b.submitted_at))
+      .sort((a, b) => compareInstant(a.submitted_at, b.submitted_at))
       .map((response) => {
         const responseQuestions = versions.get(response.form_version_id) ?? null;
         const responseSlots: SlotValues = responseQuestions
