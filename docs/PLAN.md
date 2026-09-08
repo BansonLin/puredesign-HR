@@ -6,6 +6,7 @@
 | 狀態 | **Phase 1 實作完成、驗收未結案**（2026-09-04）：T01–T30 的逐項交付狀態見 3.1 任務表的標記與第 7 節。CI（PR #1，最新一次全綠為 **run #21**，head `1fdd45f`）七個 job 全綠——`supabase db reset` 從空庫、`pnpm db:seed --verify`、19 條 Playwright（18 passed／1 永久 skip，含補 B9 的 `disabled-account`／`need-hr` 兩支 spec）都在 CI 跑過，各 run 與 head sha 見第 7 節。但 **T09 完全未執行**，另有 B1／B6／B7／B8 四項驗收未結案，要等 Banson 給 staging 金鑰與 Vercel 專案（7.2／7.3）才能結案 |
 | 來源 | 本文件由 kit.md「Prompt 0」產出；Banson 回覆「核准 Phase 1」之前，不安裝依賴、不建立 `app/`、`lib/`、`supabase/` 下任何檔案、不執行任何寫入 Supabase 的指令 |
 | 已鎖定（不再提問） | C-1：Next.js 15＋Supabase＋Vercel；帳號密碼登入（HR 建）；repo private；HR＝產品負責人、Banson＝維護者；Google Sheet 過渡版 9/11 照跑；費用上限（Supabase Pro US$25／Vercel Pro US$20／Anthropic < US$10 皆為示意） |
+| Phase 2 計畫 | 見第 8 章（2026-09-08 起草，待核准） |
 
 ---
 
@@ -925,3 +926,375 @@ B4 的 15 條在先前版本被拆錯過，正確拆解是：**flow 1／authz 6�
 ### 7.4 待決（送交 Banson／HR 裁決，Phase 1 未改任何程式碼）
 
 三指標的預警母體與 A02 不一致（D-67）：`lib/metrics/rates.ts` 的 `alertPopulation()` 不看 `profiles.status`（符合 A02「事實全量計」），但 `app/(front)/hr/page.tsx` 與 `/ceo` 只對 `activeNewcomers()` 載入預警，等於**離職者的歷史預警不計**。後果：停用某人會讓誤報率／主管回應率／24h 內回應率立刻跳動。兩條路：(a) 改 `/hr`、`/ceo` 的預警查詢母體——但 A02 同時是今日交件、缺交名單、部門統計、HR 介入清單的共用假設，動它會一次影響四處，屬架構決定；(b) 正式修訂 A02 為「只計在職」。Phase 1 已在 RUNBOOK 4.5／6.4／9.5 據實描述行為。若走 (a)，`tests/unit/ceo-dashboard.test.tsx`（頁面組合的人工複本，D-52）必須同步改。
+
+---
+
+## 8. Phase 2 計畫（後台）
+
+| 項目 | 內容 |
+|---|---|
+| 日期 | 2026-09-08 起草 |
+| 狀態 | **待核准**。Banson 回覆「核准 Phase 2」之前，不安裝 8.6 的依賴、不建立 `app/(admin)/`、不新增 migration、不執行任何寫入 Supabase 的指令（同第 0 節慣例） |
+| 來源 | kit.md「Prompt 2」＋ CLAUDE.md §9（後台頁面）、§6（表單引擎與發布驗證）、§10（權限矩陣）；程式碼介面以本分支 HEAD `75d7231` 為準（引用的函式名稱皆已 grep 確認存在） |
+| 與第 1–7 節的關係 | 第 1–7 節是 Phase 1；本章自成一節，格式沿用 0（核准摘要）、2.2（假設表）、3.1（任務表）、3.2／3.3／3.4（覆蓋、順序、風險）、5.3／5.4（依賴表）。Phase 1 的假設 A01–A13 與 D-01–D-74 在本章全部沿用，不重述 |
+
+### 8.0 一頁核准摘要（給 Banson）
+
+| 項目 | 內容 |
+|---|---|
+| 要你決定的 | **Q1–Q4**（8.3.1），每題附建議答案。回「核准 Phase 2」＝四題全部採建議 |
+| 回「核准 Phase 2」等於同意 | (1) 8.3.2 的 27 條假設 B01–B27（下表一句話版）；(2) 8.6 的新依賴：5 個 npm 套件（`@dnd-kit/core`、`@dnd-kit/sortable`、`@dnd-kit/utilities`、`papaparse`、`@types/papaparse`）與 6 個 shadcn 元件（`dialog`、`select`、`switch`、`tabs`、`checkbox`、`dropdown-menu`）；(3) 8.5 的兩個新 migration：一支 Postgres function `publish_form_version`（PLAN 4.10 #3 已預告）與 D-35 (3) 承諾的 `manager_response` partial unique index，**不加表、不加欄、不刪欄**；(4) §12 例外：**無新增**——後台版面放 `app/(admin)/admin/layout.tsx`，在 §12 列出的目錄內；新增的純函式檔 `lib/db/audit.ts`、`lib/db/queries/audit.ts`、`lib/forms/diff.ts`、`lib/forms/import.ts`、`lib/auth/roster.ts` 也都在 §12 目錄內 |
+| 起始條件 | Prompt 2 的 Starting State 三項**目前都還沒成立**（8.1.1）：PR #1 未合併、Supabase staging 與 Vercel 未建立（第 7 節 B1）、C-3 Phase 1 驗收未做。這三項是**前置**，不是 Phase 2 任務，也不計入估時；Phase 2 分支從合併後的 `main` 開 |
+| 不會做的 | Prompt 2 Forbidden：改動 `lib/rules` 規則語意、§6 以外的題型或運算子、通用規則編輯器、LINE／AI、push main。另外明列不做：刪除帳號（§9 未列，且 FK restrict）、刪除題目（A07 只能停用）、多人同時編輯草稿的鎖（B21）、`on_behalf` 欄位（4.10 #4 維持）、提交日誌的 RPC（D-26 維持非交易） |
+| 里程碑【示意】 | U05 查詢層＋後台版面可進（累計約 13h）→ U08 名單可自理，含稽核頁 U25 與遺留 U26（29.5h）→ U15 表單可發布（51h；C-3 Phase 2 第 1–3 步可走）→ U23 資料維護與匯入齊（79h）→ U30 總驗收＋PR（92h）。C-2 排 Phase 2 一週（每日 2–3h，約 15–20h）與 Phase 1 同樣落差，建議同 Q1 的處理方式：**驗收拆兩段**，先驗 U15 切片（名單＋表單），資料維護與匯入第二段 |
+| 費用 | 0【實際】：仍用 Supabase／Vercel 免費方案；五個套件皆 MIT 授權；出現付費提示即停下回報 |
+| 回覆格式 | 「核准 Phase 2」＋Q1–Q4 答案（不答＝採建議）＋（若有）「B0x 改為…」 |
+
+問題一句話版（完整內容見 8.3.1）：
+
+| 編號 | 一句話 | 建議 |
+|---|---|---|
+| Q1 | CSV 匯入 Phase 2 只做 `newcomer_daily`（主管回應與週回饋不匯入） | 是 |
+| Q2 | 三指標母體依 A02 字面**含**已離職新人的歷史預警——修 `/hr` 與 `/ceo` 的預警查詢母體，清單仍只列在職（解 D-67） | 是 |
+| Q3 | 重設密碼＝系統產生一次性臨時密碼、畫面只顯示一次、`must_change_password` 設 true | 是 |
+| Q4 | 停用帳號可由 `/admin/users` 編輯改回 active（§9 只寫停用），寫 audit | 可以 |
+
+假設一句話版（完整內容與代價見 8.3.2）：
+
+| 編號 | 一句話 |
+|---|---|
+| B01 | 拖曳排序用 `@dnd-kit/core`＋`@dnd-kit/sortable`＋`@dnd-kit/utilities`（5.7 已預告） |
+| B02 | CSV 匯入解析用 `papaparse`＋`@types/papaparse`；每格先經 `unescapeCsvFormulaGuard` 還原（D-49） |
+| B03 | 發布的原子性用一支 Postgres function `publish_form_version`（新 migration）；建立草稿不用 RPC |
+| B04 | 草稿即時存檔：debounce 800ms、整份 questions 覆寫、`parseQuestions` 只驗 schema、每次存檔一筆 audit |
+| B05 | 即時預覽直接餵 `FormRenderer`（no-op action、`submitDisabled`），不寫第二個渲染器 |
+| B06 | 差異摘要為純函式 `diffQuestionVersions`（`lib/forms/diff.ts`）＋單元測試 |
+| B07 | `/admin/rules` 的比對值驗證重用 `validatePublish` 對 active 版本跑一次；R3／A1 只有開關 |
+| B08 | `/admin/users`：username 建立後不可改；停用＝`status='left'`＋封鎖 token 刷新＋該員 open alerts 關閉＋audit；不提供刪除 |
+| B09 | `/admin/departments` CRUD；有成員時刪除被 FK restrict 擋，UI 顯示「仍有成員，請先移轉」 |
+| B10 | `/admin/data`：列表、抽屜以該筆版本 label 顯示、編輯用該筆版本驗證、改刪還原都重跑本筆與下一筆、只對 `newcomer_daily` 重跑 |
+| B11 | CSV 匯入流程：上傳 → 欄位對映（slot 下拉）→ 乾跑 → 前 5 列預覽＋預計預警數 → 確認寫入 `source='import'`；同人同日已有未刪列一律跳過 |
+| B12 | 稽核 helper `lib/db/audit.ts` 的 `writeAudit()`；所有 `/admin` Server Action 必經；action 命名 `<entity>.<verb>` |
+| B13 | 守門：每個 `app/(admin)/admin/**/page.tsx` 與 `actions.ts` 呼叫 `requireRole(['hr','admin'])`，規則與設定為 `requireRole(['admin'])`，動作再 `can()` |
+| B14 | 後台版面 `app/(admin)/admin/layout.tsx`（AppNav 七項＋登出鈕）；`/hr` 導覽加「後台」連結 |
+| B15 | `/admin/settings`：三個值＋Phase 3 通知區塊只顯示「Phase 3 才開放」不儲存 |
+| B16 | `/admin/audit` 唯讀，篩選人、實體、日期，before／after 可展開，每頁 50 |
+| B17 | Phase 1 遺留：D-56 抽 `compareInstant` 到 `lib/time`；D-67 依 Q2 修；D-35 (3) 的回應自然鍵索引補上；D-26／4.10 #4／D-12 維持不動 |
+| B18 | shadcn 六個元件取得方式同 D-10（CLI 不可用時從 `shadcn@3.8.5` 原檔取） |
+| B19 | 測試：發布拒絕理由對照表（`validatePublish` 共 13 個訊息模板，既有 `forms-publish.test.ts` 已全部碰到，補邊界案例）、跨版本案例引用既有＋補 label 案例、新增 diff／import／audit／rules 驗證單元測試；e2e 走 CI 本機堆疊並還原資料（D-71） |
+| B20 | 估時原則同 Phase 1：每項 ≤ 4h，誠實估 |
+| B21 | 草稿同一時間只有一位 HR 編輯（last-write-wins，不做鎖） |
+| B22 | HR 重跑／匯入用新的純函式 `prepareLogRerun`（該筆自己的版本、`now`＝該筆 `submitted_at`，D-62），不重用 `prepareDailyLog`；關閉預警的新原因 `'submission_deleted'`／`'left'` 走新查詢 `closeOpenAlerts`，`reconcile` 不動 |
+| B23 | seed 不改；`checkInvariants` 只在 `--verify` 跑；e2e 發布 v2 後必須還原 v1 為 active（D-71 慣例） |
+| B24 | `lib/db/types.ts` 手寫（D-11）：RPC 型別手動加進 `Functions`，有 Docker 時以 `pnpm db:types` 覆蓋核對 |
+| B25 | 後台以桌機為主要情境，但頁面本體 375px 不得橫向捲動（表格自行 `overflow-x-auto`）、主要按鈕 ≥ 44px；`mobile.spec` 只對後台清單頁做 `scrollWidth` 斷言 |
+| B26 | e2e 新增的那一題設 `required=false`（C-3 人工驗收可設 required）；e2e 建立的帳號、版本、稽核列在 `afterAll` 全部還原 |
+| B27 | 名單權限邊界：hr 不得建立或改成 admin 角色、不得編輯／停用／重設 admin 帳號；任何人不得改自己的角色與狀態 |
+
+### 8.1 起始條件與範圍
+
+#### 8.1.1 Prompt 2 Starting State 對照目前狀態
+
+| Prompt 2 Starting State | 目前狀態（2026-09-08，本分支 HEAD `75d7231`） | 處置 |
+|---|---|---|
+| Phase 1 已合併到 main | PR #1 仍開著、未合併；最新全綠為 CI run #21（head `1fdd45f`），其後 `75d7231` 只收 review findings。`main` 上沒有 `app/`、`lib/`、`supabase/` | **前置**：人審後合併 PR #1；Phase 2 分支從合併後的 `main` 開（§0：功能分支 → PR → 等人審） |
+| 並在 staging 運作 | 無 Vercel 專案、無 Supabase staging 專案／金鑰（第 7 節 B1、7.3）；T09 整列未執行 | **前置**：依 7.3 清單建專案 → `supabase db push` → `pnpm db:seed` → Vercel Preview 設 §4 五個變數；順便結案 B6／B7／B8 |
+| 資料庫有 seed | 只有 CI 本機堆疊每次從空庫 seed；staging 尚無資料 | **前置**：同上；Phase 2 的 migration 上 staging 前先在 CI `db` job 驗證 |
+| （隱含）C-3 Phase 1 驗收通過 | 未做（需 staging＋手機，第 7 節 B8） | **前置**：kit.md 明寫「Phase 1 驗收通過（C-3 的清單）再貼 Prompt 2」 |
+
+前置全部不計入 8.4 估時；前置未完成前 Phase 2 可以先做不需要 staging 的層（8.4.3 第 (1)–(6) 層都對 CI 本機堆疊即可驗證），但 C-3 Phase 2 驗收與 PR 截圖要等 staging。
+
+#### 8.1.2 Target State（Prompt 2 原文逐字）
+
+1. `/admin/users`、`/admin/departments`：完整 CRUD、停用、重設密碼；新增新人自動建三筆 milestones；每次寫入有 audit_log。
+2. `/admin/forms`：版本列表、建立草稿（複製發布版）、草稿編輯器（拖曳排序、新增／編輯／停用題目、show_if、slot 下拉只列合法 slot、即時預覽）、發布（跑第 6 節驗證、差異摘要、change_note）；發布後新人下一次開啟 /me/today 即使用新版；舊日誌以舊版 label 顯示。
+3. `/admin/rules`（admin only）：啟用開關與參數；顯示每條規則的 slot 綁定狀態；參數值不在選項內時拒存並說明。
+4. `/admin/data`：篩選列表；編輯答案與軟刪除皆必填原因並寫 audit；還原；重跑規則；CSV 匯出；CSV 匯入（欄位對映到 slot、前 5 列預覽、預計產生預警數、匯入 source=import）。
+5. `/admin/settings`（admin only）與 `/admin/audit`。
+6. 單元測試：發布驗證的每一條拒絕理由各一個案例；slot 跨版本讀取昨日計畫的案例（v1 改標籤與順序後發布 v2，昨日計畫仍正確）。
+7. e2e：HR 建新人→新人登入→HR 在草稿新增一題並發布→新人今日日誌出現該題→HR 在 /admin/data 修一筆並看到 audit。
+8. RUNBOOK 新增：如何安全地改題目（先草稿、預覽、發布；key 不可改；什麼情況會被驗證擋）。
+
+#### 8.1.3 Allowed／Forbidden／Stop Conditions（Prompt 2 原文逐字）
+
+| 項目 | 原文 |
+|---|---|
+| Allowed Actions | 同 Phase 1，另可新增 app/(admin)/admin 下頁面與對應 Server Actions。 |
+| Forbidden Actions | 改動 lib/rules 的規則語意；新增第 6 節以外的題型或條件運算子；建立通用規則編輯器；接 LINE 或 AI；push main。 |
+| Stop Conditions | 同 Phase 1；發布驗證需要放寬任何一條規則時先問。 |
+| Checkpoints | 每完成 1–8 任一項輸出三行回報；結尾輸出檔案變更總表與測試結果。 |
+
+「同 Phase 1」的 Allowed＝在 §12 目錄新增與修改檔案、安裝本文件已核准的依賴（Phase 2 為 8.6）、對 staging 跑 migrations 與 seed、建功能分支與 PR；Stop＝§0 列出的任何情況、migrations 需偏離 §5、e2e 連續失敗兩次、Vercel／Supabase 需要付費方案。
+
+#### 8.1.4 C-3 Phase 2 驗收（原文逐字，Banson 或 HR 親自做，20 分鐘）
+
+HR 建一個新人帳號 → 在草稿新增一題「今天有沒有跟主管講到話」並發布 → 新人今日日誌出現該題 → HR 改一筆答案並在稽核看到紀錄 → admin 把回應門檻改成 12 小時，儀表板逾時數變化。
+
+逐步操作與「逾時數變化」的驗證方式見 8.7.2。
+
+### 8.2 對 §6／§9 的理解摘要
+
+1. **草稿唯一途徑**是「複製目前發布版為新草稿」（§6）；同一範本同時最多一個 draft、一個 published，由 `form_versions_one_draft_idx`／`form_versions_one_published_idx` 保證（PLAN 4.3），撞索引（23505）就是「已有草稿」。
+2. **編輯 draft 的任何動作即時存檔**（§6）：編輯器不設「儲存」鈕；每次變更把整份 `questions` jsonb 寫回，伺服器只以 `parseQuestions` 驗 schema，不跑發布規則（草稿允許暫時不合法）。
+3. **發布**＝draft → published、舊 published → archived、`form_templates.active_version_id` 指向新版（§6）；語句順序固定（PLAN 4.3：先 archived 再 published 再指向），且 partial unique index 不能 deferrable，所以放進一支 DB function 一次做完（B03）。
+4. **五條發布驗證缺一即拒**（§6 逐字）：key 唯一且已發布過的 key 不得改型別；single_select 至少 2 個選項；show_if 指向存在且在前的題目；啟用中規則所需 slot 各綁定恰好一題；規則參數比對值必須存在於所綁題目的 options。Phase 1 的 `validatePublish(questions, rules, { templateKey, previousPublished })` 已實作這五條加 A06／A07／A12 的補充（system slot、requiredOptions、停用題、user_select）；C-4 明言不放寬，Prompt 2 Stop 明言要放寬先問。
+5. **slot 下拉只列合法 slot**：合法＝`SLOTS` 中 `SLOT_SPECS[slot].template === 本範本`（D-14）且未被同版本其他未停用題綁定；`plan.*`／`result.*` 只給 newcomer_daily、`response.*` 只給 manager_response、`weekly.*` 只給 weekly_feedback。
+6. **舊日誌永遠綁原版本**（§6）：`/admin/data` 顯示與編輯答案都用該筆 `form_version_id` 的版本（`getVersionById`），驗證用 `validateAnswers(該版本 questions, raw)`，不用 active 版；重跑規則也用該筆自己的版本解 slot（`bySlot`），前一筆用前一筆自己的版本——與 `prepareDailyLog` 讀昨日計畫同一原則。
+7. **發布後新人下一次開啟 /me/today 即用新版**：`/me/today` 每次請求都 `getActiveVersion('newcomer_daily')`（page.tsx:68），重提也改綁 active 版（D-26 (5)），不需另做任何事。
+8. **`/admin/rules` 的參數值必須在所綁題 options**（§9）：拒存的判斷與發布驗證是同一件事的兩個方向（改參數 vs 改選項），所以重用 `validatePublish` 對 active newcomer_daily 版本跑候選規則，錯誤字串同一份（B07）。
+9. **`/admin/data` 的改、刪、還原、重跑、匯入**（§9）：A05 已定連鎖規則——軟刪 open alerts → closed('submission_deleted')、還原先查自然鍵衝突、改刪還原後重跑本筆與同一新人下一筆未刪日誌（因 R1 看前一筆的計畫）；重跑只會動 open／closed 的預警，`responded` 一律不動（A10／D-23）；匯入只做 newcomer_daily（Q1），走 slot 對映，前 5 列預覽與預計預警數靠乾跑。
+10. **後台所有寫入寫 audit_log**（§5、§9）：名單、部門、表單草稿與發布、規則、設定、資料改刪還原重跑、匯入，每個 Server Action 一筆（匯入整批一筆）；`audit_log.actor_id` not null，seed 仍不寫（D-12）。
+11. **權限**（§10）：`/admin` 全區 hr／admin，規則與設定僅 admin；動作對應 `policy.ts` 既有的 Action：`roster:manage`、`form:manage`、`rules_settings:manage`、`data:manage`、`csv:export`、`audit:read`，不新增 Action。
+12. **§9 未寫、本章補的**：停用可否還原（Q4）、重設密碼機制（Q3）、匯入範圍（Q1）、後台是否要 375px（B25）、多人編輯（B21）。
+
+### 8.3 問題與假設
+
+#### 8.3.1 必須先回答的問題
+
+四題都會改變範圍或使用者看得到的行為；其餘取捨已收斂為 8.3.2 的假設。回「核准 Phase 2」時未指名即採建議。
+
+| 編號 | 問題 | 建議 | 若不採建議 |
+|---|---|---|---|
+| Q1 | CSV 匯入（§9「用於從 Google Sheet 過渡版搬資料」）Phase 2 是否只做 `newcomer_daily`？主管回應與週回饋在 Sheet 過渡版是自由文字，沒有 `target_submission_id`，對映不到日誌 | **是**：只匯入日誌；主管回應由主管在系統內補（或不補，C-2 週 3 雙軌一週後切換），匯入頁對其他範本顯示「Phase 2 不支援」 | 要匯回應：需定義「回應對映到哪一筆日誌」的規則（同人同日？），多一個純函式與 UI，約 +6h【示意】，且回應的 `responded_at` 會影響三指標 |
+| Q2 | 三指標的預警母體：D-67 指出 Phase 1 `/hr`、`/ceo` 只載入 `activeNewcomers()` 的預警，離職者歷史預警不計，與 A02「事實全量計」不一致，停用某人會讓誤報率／主管回應率跳動。Phase 2 隨 `/admin/users` 停用功能一併裁決 | **是，依 A02 字面修**：`/hr` 與 `/ceo` 的 `listAlertsWithSubmission()` 改為不限 `userIds`（全量，`alertPopulation()` 已排除 `sample`），只有三指標用全量；今日交件、缺交名單、待處理預警、HR 介入清單、部門統計、新人總覽仍以 `activeNewcomers()` 為母體不變。`tests/unit/ceo-dashboard.test.tsx` 同步（D-52）。殘餘效應（B08）：停用時該員 **open** 預警會被關閉（`closed_reason='left'`），關閉的預警本來就不在 `alertPopulation()`（只算 open／responded），所以主管回應率的分母仍會少這幾筆；已回應的預警全部保留，誤報率不受影響。U26 的測試兩種各放一例 | 改採「只計在職」：正式修訂 A02 並在 RUNBOOK 4.5／6.4／9.5 留現狀描述；程式不改。停用即改變歷史指標，HR 需接受 |
+| Q3 | 重設密碼的機制：§9 只寫「重設密碼」。建議由系統產生一次性臨時密碼（12 碼、含英文與數字、符合 `meetsPasswordRule`），畫面只顯示一次（由 Server Action 的回傳值 `FormActionState` 帶回並在 `dialog` 顯示，絕不經 `redirect()` 的 query string，避免進 URL 與伺服器日誌）、不寫進 audit、不寄信（帳號無真 email），同時 `must_change_password=true` 讓對方首次登入強制改 | **是** | 改為 HR 自訂密碼：多一個輸入欄與弱密碼提示，HR 會傾向重複用同一組；或改為「寄重設連結」：`{username}@pure.internal` 收不到信，做不到 |
+| Q4 | 停用（`status='left'`）之後可否從 `/admin/users` 編輯改回 `active`？§9 只寫停用。誤停用、離職再回任都會用到 | **可以**：編輯抽屜的狀態欄可選 active／left，改回 active 寫 audit `user.reactivate`；已被關閉的預警不自動重開（HR 可在 `/admin/data` 重跑該筆） | 不可逆：誤停用只能靠工程師改庫，違反 §1「HR 不需工程師」 |
+
+#### 8.3.2 假設清單
+
+| 編號 | 假設（建議答案） | 依據 | 若假設錯了的代價 |
+|---|---|---|---|
+| B01 | 拖曳排序用 `@dnd-kit/core`＋`@dnd-kit/sortable`＋`@dnd-kit/utilities`（8.6）；只做垂直單列表排序，拖放結束把 `order` 重編為 1..n 並觸發即時存檔；提供鍵盤上下移動（dnd-kit 內建 KeyboardSensor）當備援 | §9「題目列表可拖曳排序」；PLAN 5.7 已預告 `@dnd-kit/*`；§3「拖曳以外的表單佈局功能不做」 | 若改用 HTML5 原生 drag：LINE 內建瀏覽器與觸控支援差；若不裝套件改「上移／下移」按鈕：違反 §9 字面。換套件約半天【示意】 |
+| B02 | CSV 匯入解析用 `papaparse`（瀏覽器端解析檔案 → 以 JSON 送 Server Action，不上傳原檔）＋`@types/papaparse`；每個儲存格先經 `lib/db/csv.ts` 的 `unescapeCsvFormulaGuard()` 還原（D-49），再 trim；BOM 由 papaparse 處理 | §9「CSV 匯入」；PLAN 5.2「papaparse 等 Phase 2 匯入再評估」；D-49「Phase 2 的 CSV 匯入必須先呼叫它還原」 | 手寫解析器要處理引號內換行與逗號，Phase 1 的 `toCsv` 只有輸出方向；若 Sheet 匯出檔不是 UTF-8，papaparse 讀不出中文，改為 RUNBOOK 規定「另存為 CSV UTF-8」 |
+| B03 | 發布的原子性：新增一個 migration `…_rpc_publish_form_version.sql` 建 Postgres function `publish_form_version(p_version_id uuid, p_actor_id uuid, p_change_note text) returns uuid`（plpgsql、預設 SECURITY INVOKER、service role 呼叫，不需 SECURITY DEFINER），同一交易內：對 `form_templates` 該列 `for update` 上鎖 → 確認 `p_version_id` 存在且 `status='draft'`（否則 `raise exception` 帶繁中訊息）→ 舊 published → archived → draft → published＋`published_at=now()`／`published_by=p_actor_id`／`change_note` → `active_version_id` 指向新版 → 寫一筆 `audit_log`（`action='form.publish'`、`entity='form_versions'`、before＝舊 published 的 `{id, version_no}`、after＝新版 `{id, version_no, change_note}`）→ 回傳新版 id。`validatePublish` 在 Server Action 先跑（RPC 內只重驗狀態，不重驗題目）；`revoke all on function … from public, anon, authenticated`——**必須含 `public`**：Postgres 對函式預設把 EXECUTE 授予 PUBLIC，helpers.sql 的 default privileges 與既有 `set_updated_at` 的 revoke 都只對 anon／authenticated，拿不掉 PUBLIC 那份（本機 PG16 實測：只 revoke anon／authenticated 後 `has_function_privilege('anon', …, 'execute')` 仍為 true，加 `from public` 才為 false；`set_updated_at` 是觸發器函式，直接呼叫無害，Phase 2 不動）。**建立草稿不用 RPC**：select published → insert draft（`version_no = max(version_no)+1`、`questions` 複製、`status='draft'`），撞 `form_versions_one_draft_idx`（23505）回「已有草稿，請繼續編輯」 | §6 發布三步；PLAN 4.3「partial unique index 不能 deferrable，發布交易語句順序固定」；PLAN 4.10 #3「Phase 2 發布流程若需 RPC 再追加 `…_rpc_<name>.sql`」；§5「欄位可加不可刪」 | 若不用 RPC：PostgREST 三次寫入之間失敗會留下「兩個都不是 published」或「active 指向 archived」的狀態，`/me/today` 會回「目前沒有可用的日誌表單」；若 Banson 不准新 migration：退回非交易寫入並在 DECISIONS 記風險，約 −2h【示意】 |
+| B04 | 草稿即時存檔：編輯器（client）每次變更 debounce 800ms 後呼叫 Server Action `saveDraft(versionId, questions)`，以整份 `questions` jsonb 覆寫（不做 patch）；伺服器先 `parseQuestions()` 只驗 schema（不跑 `validatePublish`，草稿允許暫時不合法），再 `.eq('status','draft')` 更新；每次存檔寫一筆 audit（`action='form.draft_saved'`、`before=null`、`after`＝相對上一次存檔的 `diffQuestionVersions` 結果，不存整份 questions；一小時編輯約百筆、每筆百餘 bytes【示意】，體積可控）；發布時 audit 帶 `diffQuestionVersions` 的完整差異；存檔失敗在編輯器頂部顯示「未儲存」並保留本機狀態供重試 | §6「編輯 draft 的任何動作即時存檔」；D-25（Server Action 回 `FormActionState`）；§5 audit「表單發布」必寫 | 若要 patch 式存檔：需要 jsonb 局部更新語法與衝突處理，多 3h【示意】；若 audit 列數仍嫌多：改為「離開編輯器或發布時各一筆」，改一處（§5「後台所有寫入必須寫一筆」字面會鬆動，需記 DECISIONS） |
+| B05 | 即時預覽：以 `parseQuestions` 後的草稿 `questions` 直接餵 `FormRenderer`（`action` 為編輯器內定義的 no-op async 函式、`submitDisabled=true`、`userOptions` 由 page 以 `listProfiles({status:'active'})` 傳入供 `user_select` 預覽），show_if 由既有 `resolveVisibility` 處理，不寫第二個渲染器；解析失敗時預覽區顯示 `parseQuestions` 的原因清單 | §9「即時預覽（以新人視角渲染，含條件邏輯）」；D-25 渲染器契約；§0 不新增抽象層 | 若 `FormRenderer` 的 `useActionState` 在 no-op 下有副作用（目前無），改為傳 `submitDisabled` 即可 |
+| B06 | 差異摘要：純函式 `diffQuestionVersions(prev: readonly Question[], next: readonly Question[]) → QuestionDiff[]`（`lib/forms/diff.ts`，§12 `lib/forms` 內），以 key 對齊，輸出每題的變更種類：新增、停用、重新啟用、label／options／slot／show_if／order／required／help／placeholder 變更、型別變更（發布會被擋，仍列出供 HR 看）；順序變更只在 `order` 相對次序改變時列出（重編號不算）；單元測試以 T10 的跨版本 v2 案例當 fixture | §9「發布…顯示與上一版差異摘要」 | 純顯示，錯了改一個函式；若 HR 要「逐字差異」而非種類：加 before／after 字串，半天【示意】 |
+| B07 | `/admin/rules`：讀 `getSettings().rules` 經 `parseRulesSettings`（非法時以 `rulesSettingsErrors` 列出原因、表單仍可修正後存）；儲存前把候選 `rules` 對 active newcomer_daily 版本跑 `validatePublish(activeQuestions, candidateRules, { templateKey:'newcomer_daily', previousPublished: activeQuestions })`，任一錯即拒存並列出（錯誤字串與發布驗證同一份）；每條規則顯示所需 slot 目前綁到 active 版哪一題（key／label）或「未綁定」；R3／A1 只有 `enabled` 開關（cutoff 與門檻在 `/admin/settings`，PLAN 4.8）；儲存寫 `settings.rules`＋`updated_by`＋audit `rules.update`（before／after 整份 jsonb） | §9「參數比對值必須存在於該題 options，否則拒存」「顯示各規則所需 slot 目前綁到哪一題」；D-24 `rulesSettingsErrors` 已為此預留；`validatePublish` 的參數檢查只看 `templateKey==='newcomer_daily'` | 若 active 版本本身因舊規則改動已不合法（不該發生，發布時擋過）：拒存訊息會混入非參數錯誤，UI 以前綴「規則」過濾顯示 |
+| B08 | `/admin/users`：username 建立後不可改（migration check `profiles_username_chk` 為小寫 `^[a-z0-9][a-z0-9_.-]{1,31}$`，Server Action 以同一 regex 先驗、常數放 `lib/auth/roster.ts`）；email＝`usernameToEmail(username)`（`lib/auth/session.ts` 既有）；建立走 `auth.admin.createUser({ email, password: 臨時密碼, email_confirm: true })` → insert `profiles`（`must_change_password=true`，`start_date` 對 newcomer 以 zod 必填、其他角色可空）→ 若 role=newcomer 且有 `start_date` 以 `milestonesFor()` upsert 三筆（D-65）→ audit `user.create`；display_name／role／department／manager／start_date／status 可編輯；`start_date` 改動只重算 `done_at is null` 的節點（A09；純函式 `pendingMilestoneUpdates(existing, startDate)` 放 `lib/time/milestones.ts`）；**停用**＝`status='left'`＋`auth.admin.updateUserById(id, { ban_duration: '876000h' })` 封鎖 token 刷新（`auth.admin.signOut(jwt, scope)` 收的是 JWT 不是 user id，做不到「登出某人」；既有 session 下一次請求由 `requireRole` 的 `status==='left'` 分支導到 `/login?reason=disabled`，D-13；另外 `middleware.ts` 每次請求都 `getUser()`，被 ban 的帳號應在下一次請求就被 GoTrue 拒絕——未實測，U08 在 CI 堆疊驗證）＋該員所有 open alerts → `closed(closed_reason='left', closed_by=操作者)`（新查詢 `closeOpenAlerts`，B22）＋audit `user.deactivate`；改回 active（Q4）＝`status='active'`＋`ban_duration:'none'`＋audit `user.reactivate`；**重設密碼**（Q3）＝`auth.admin.updateUserById(id, { password })`＋`must_change_password=true`＋audit `user.reset_password`（`after` 不含密碼；臨時密碼只經 Server Action 回傳值顯示，不經 redirect query，Q3）；**權限邊界**（B27）：hr 不得把任何帳號的 role 設為或改為 admin、不得編輯／停用／重設 role=admin 的帳號，任何人不得改自己的 role 與 status；不提供刪除帳號 | §3「HR 在後台建立…`{username}@pure.internal`」；§5 profiles 欄位；§9「新增…編輯、停用（status=left）、重設密碼；新增新人自動建三筆 milestones」；A02、A09、D-13、D-65；`submissions.user_id`／`audit_log.actor_id` FK restrict | 若要改 username：email 也要改（`auth.admin.updateUserById({ email })`），且 CSV 匯入以 username 對人，歷史檔會對不上；若 `ban_duration` 在 GoTrue 版本行為不同：退回只靠 `requireRole`（left 分支在下一次頁面請求即擋；目前沒有不經 `requireRole` 的資料路徑），記 DECISIONS |
+| B09 | `/admin/departments`：列表（依 `sort_order`、`name`）、新增（name 唯一、trim 後非空）、編輯 name／sort_order、刪除；有成員（`profiles.department_id` FK restrict）時刪除失敗，UI 顯示「仍有成員，請先移轉」；每個動作 audit `department.create／update／delete` | §9「CRUD」；PLAN 4.3 `departments_name_key`、`profiles_department_id_fkey on delete restrict` | 若要「停用部門」而非刪除：§5 沒有 status 欄，需加欄（可加不可刪）；Phase 2 不做 |
+| B10 | `/admin/data`：列表所有三個範本（`listSubmissionsForAdmin`，新查詢），篩選範本、人（填寫者或對象）、日期區間（`log_date`／`week_start`／`submitted_at` 台北日期）、有無預警、來源（app／import）、含已刪；每頁 50，依 `submitted_at desc`；列 → 抽屜：以該筆自己的版本 label 顯示答案（`getVersionById`＋`resolveVisibility`）、預警與狀態、回應；**編輯答案**用 `validateAnswers(該筆版本 questions, raw)`（不是 active 版）、原因必填、audit `submission.edit`（before／after answers＋reason）；儲存後重跑該筆規則，且若為 `newcomer_daily` 也重跑同一新人 `log_date` 大於該筆的最近一筆未刪日誌（A05 (5)）；**軟刪除**原因必填 → `deleted_at／deleted_by／delete_reason`、該筆 open alerts → `closed('submission_deleted')`（responded 不動）、重跑下一筆、audit `submission.delete`；指向該日誌的 `manager_response` 列不動（`/hr`、`/me/history` 從 `listLogs` 起算，日誌消失回應自然不顯示，還原後一併回來），`/admin/data` 對這些回應標「對象日誌已刪除」；**還原**先查自然鍵衝突（daily：`getLogByDate`；weekly：同 (user, target, week_start) 未刪列；manager_response：同 (user, target_submission) 未刪列，B17 (f) 的索引）→ 衝突拒絕「同人同日已有另一筆，請先刪除另一筆」→ 清 `deleted_*` → 重跑本筆與下一筆 → audit `submission.restore`；「重跑該筆規則」按鈕只重跑該筆（§9 字面）並 audit `submission.rerun`；規則重跑只對 `newcomer_daily`，`manager_response`／`weekly_feedback` 的編刪不重跑（但編輯回應的 `response.status` 會直接影響誤報率與 HR 介入清單，抽屜提示）；CSV 匯出＝目前篩選結果（不分頁），用 `lib/db/csv.ts` 的 `toCsv`／`csvHttpHeaders`（BOM、CRLF、公式防護），欄位以 slot 為主（有 slot 的題表頭用 slot 名）、無 slot 的題以 key，另加 `template_key`、`username`、`target_username`、`log_date`、`week_start`、`submitted_at`（台北）、`source`、`deleted_at`、`alerts` | §9 `/admin/data` 逐字；A05 (2)(3)(5)；§5 partial unique；D-35 (3)（回應無唯一索引，多出的列由 /admin/data 軟刪）；D-41 (4) 的 CSV 口徑 | 若 HR 要「重跑」也連帶下一筆：按鈕語意改一行；若匯出要分頁：加 `limit` 參數 |
+| B11 | CSV 匯入（`newcomer_daily`，Q1）：上傳 → papaparse（client）→ 欄位對映（固定欄：`username` 必填、`log_date` 必填、`submitted_at` 可選；其餘欄 → slot 下拉，只列 newcomer_daily 的 slot，未對映的欄忽略）→ **乾跑**（Server Action，純函式 `prepareImport` 在 `lib/forms/import.ts`）：依 `log_date` 排序，逐列以 slot → active 版本 key 組 `rawAnswers`、`validateAnswers(activeQuestions)`、以既有 DB 日誌與同批前一列（同人、`log_date` 較小者）為「前一筆」跑 `runRules`＋`reconcile(existing=[], now=submitted_at)`；`submitted_at` 缺時預設 `log_date` 17:00 台北（`cutoffInstant(log_date,'17:00')`）並在預覽標示「預設」；`taipeiDateOf(submitted_at) !== log_date` 的列標錯（D-62：`alerts.created_at＝submitted_at`，兩者不同日會讓 A1 時鐘與 R3 對不上）；username 不存在或非 newcomer 標錯；同人同日已有未刪列一律**跳過**並列入報告（不覆蓋 app 來源）；同批內重複的 (username, log_date) 後列標錯；`status='left'` 的新人可匯入歷史（A02 事實全量計，但不進 `activeNewcomers()` 母體）→ 顯示前 5 列預覽、總列數、有效／錯誤／跳過數、預計產生預警數（R1／R2 各幾筆）→ 確認 → 寫入 `insertDailyLog({ source:'import', form_version_id: active 版 })`＋`applyAlertChanges`（`created_at=submitted_at`）→ 對每個匯入列 `rerunNextLog(userId, log_date)`（A05 (5)：既有 DB 日誌的前一筆變了就要重算，否則雙軌週匯入 9/11–9/22 後系統第一筆日誌的 R1 仍是以「無前一筆」算的；下一筆若是同批列則略過，同一筆只重跑一次）→ 整批一筆 audit `import.run`（after＝{檔名、筆數、跳過數、錯誤數、預警數、重跑既有日誌數、對映}）；匯入的列 `form_version_id`＝匯入當下的 active 版；乾跑與寫入之間若 active 版被發布換掉，寫入前重驗一次，不同即拒絕「表單版本已變更，請重新預覽」 | §9「CSV 匯入（欄位對映到 slot…匯入前預覽前 5 列與預計產生的預警數）」；Prompt 2 Target 4「匯入 source=import」；D-62；A11（未對映 → null）；`insertDailyLog` 已有 `source` 參數 | 若要覆蓋既有列：改跳過為更新＋重跑，多 2h【示意】且會動到 app 來源資料；若 Sheet 的日期格式非 `YYYY-MM-DD`：對映步驟加格式選擇，1h【示意】 |
+| B12 | 稽核 helper：`lib/db/audit.ts` 匯出 `writeAudit({ actorId, action, entity, entityId, before, after, reason })`（`server-only`，insert 一列，失敗 throw 讓 Server Action 回錯；不吞錯）；`lib/db/queries/audit.ts` 匯出 `listAudit({ actorId?, entity?, dateFrom?, dateTo?, page })`；所有 `/admin` Server Action 在主要寫入成功後呼叫；action 命名 `<entity>.<verb>`：`user.create／update／deactivate／reactivate／reset_password`、`department.create／update／delete`、`form.draft_create／draft_saved／publish`、`rules.update`、`settings.update`、`submission.edit／delete／restore／rerun`、`import.run`；`entity`＝表名、`entity_id`＝主鍵（匯入為一個 uuid 批次 id）；純函式 `auditActionLabel(action)` 給 `/admin/audit` 顯示繁中 | §5 audit_log「後台所有寫入…必須寫一筆」；PLAN 4.3 audit_log 例示 `user.create`、`form.publish`、`submission.edit` | 若要求 audit 與主要寫入同交易：只有 `publish_form_version` 做得到（RPC 內寫），其餘為 PostgREST 兩次寫入，主要寫入成功而 audit 失敗會回錯但資料已變；記 DECISIONS，Phase 3 若要嚴格再逐一 RPC 化 |
+| B13 | 守門：每個 `app/(admin)/admin/**/page.tsx` 與 `actions.ts` 第一件事呼叫 `requireRole(['hr','admin'])`；`/admin/rules` 與 `/admin/settings` 為 `requireRole(['admin'])`；動作再以 `can(actor, action)` 檢查：名單／部門 `roster:manage`、表單 `form:manage`、規則與設定 `rules_settings:manage`、資料改刪還原重跑匯入 `data:manage`、匯出 `csv:export`、稽核 `audit:read`（六個 Action 已在 `lib/auth/policy.ts`，不新增）；`tests/unit/guard-coverage.test.ts` 掃 `app/**/page.tsx`、`actions.ts`、`app/api/**/route.ts`，自然涵蓋 `app/(admin)/**`，白名單不擴充；後台 client component（編輯器、匯入精靈、抽屜）不得 import `lib/db`（`secrets-boundary`），資料一律由 page 以 props 傳入 | §9「role ∈ {hr, admin}；規則與設定僅 admin」；§10 十列；T08 `guard-coverage`；T03 `secrets-boundary` | 若 hr 也要改設定：`policy.ts` 一格＋`guard.test.ts` 一例，但違反 §10 |
+| B14 | 後台版面：`app/(admin)/admin/layout.tsx`（含頁首「璞石新人支持系統｜後台」、登出鈕（Server Action 同 `app/(front)/layout.tsx` 的 `logout`，小段重複可接受）、`AppNav` 七項：名單 `/admin/users`、部門 `/admin/departments`、表單 `/admin/forms`、規則 `/admin/rules`（admin）、資料 `/admin/data`、設定 `/admin/settings`（admin）、稽核 `/admin/audit`；layout 以 `requireRole(['hr','admin'])` 取得角色決定是否渲染 admin 項）；`app/(admin)/admin/page.tsx` 導向 `/admin/users`；`app/(front)/hr/layout.tsx` 的 `HR_NAV` 加「後台」→ `/admin`（hr／admin 才進得了 `/hr`，不需再判斷）；`middleware.ts` 的 `PROTECTED_PREFIXES` 已含 `/admin`（D-16），不改 | §9；§12 `app/(admin)/admin`；D-02（route group 根目錄 layout 是例外檔，故本章把 layout 放在 `admin/` 內避免新增例外）；D-43／D-73 `AppNav` | 若 Banson 要 `/admin` 與 `/hr` 同一個殼：把 (admin) 移進 (front)，違反 §12 目錄，不建議 |
+| B15 | `/admin/settings`（admin）：`daily_cutoff_time`（`HH:mm`，重用 `parseDashboardSettings` 的驗證，D-32）、`response_threshold_hours`（整數 1–168）、`workweek`（`mon_fri`／`mon_sat`，重用 `parseWorkweekSetting`，D-39）；Phase 3 通知設定區塊只顯示「Phase 3 才開放」不儲存、不建 settings key；每次儲存寫三列（值不變的列 trigger 不推進 `updated_at`）＋`updated_by`＋audit `settings.update`（before／after 三值）；儲存後 `revalidatePath('/hr')`，儀表板下一次讀取即用新值（§3 讀取時推導） | §9 `/admin/settings` 逐字；PLAN 4.8 四個 key；D-32／D-39 不靜默補預設 | 若要 cutoff 分部門：需新表或 jsonb 結構，Phase 2 不做 |
+| B16 | `/admin/audit`：唯讀，`listAudit` 篩選人（actor 下拉＝`listProfiles()`）、實體（表名下拉）、日期區間（台北）；每列：時間（`formatTaipei`）、操作者 display_name、action（`auditActionLabel`）、entity／entity_id、reason；before／after 以 `<details>` 展開顯示格式化 JSON；每頁 50，只有上一頁／下一頁；頁面無任何寫入 | §9「稽核紀錄唯讀列表，可依人、實體、日期篩選」；PLAN 4.3 三個 audit 索引 | 純讀；若要匯出稽核：加 Route Handler，1h【示意】 |
+| B17 | Phase 1 遺留在 Phase 2 的處置：(a) D-56 `compareInstant` 抽到 `lib/time/index.ts`（`compareInstant(a: Instant, b: Instant): number`），`lib/db/csv.ts:205`、`components/dashboard/HistoryList.tsx:195`、`components/dashboard/Timeline.tsx:196` 三處改 import；(b) D-67 依 Q2 修 `app/(front)/hr/page.tsx:100` 與 `app/(front)/ceo/page.tsx:89` 的預警查詢母體，並同步 `tests/unit/ceo-dashboard.test.tsx`；(c) D-26 的提交 RPC **不在 Phase 2**（`/me/today` 不動，非交易性維持）；(d) 4.10 #4 `on_behalf` 仍不加欄位（顯示由角色推導）；(e) D-12 seed 不寫 audit 維持，待 Banson；(f) D-35 (3) 承諾的 `manager_response` partial unique index `(template_key, user_id, target_submission_id) where template_key='manager_response' and deleted_at is null` **在 U26 補上**（第二個 migration，只加索引；Phase 1 的回應 Server Action 對 23505 回「已送出過，請重新整理」取代 `console.warn` 路徑；U20 的還原對 manager_response 也先查此自然鍵） | D-56、D-67、D-26、4.10 #4、D-12、D-35 | (f) 若 Banson 不要這個索引：U26 少 0.5h【示意】，D-35 (3) 改記為「不補」 |
+| B18 | shadcn 元件新增 `dialog`（發布確認、刪除確認）、`select`（角色、部門、主管、範本、slot、show_if 運算子下拉——後台在桌機為主，Radix Select 可用；前台仍維持原生 `<select>`，5.2 不變）、`switch`（規則開關、required／disabled）、`tabs`（`/admin/forms/[key]` 的「版本／草稿」與 `/admin/data` 的「列表／匯入」）、`checkbox`（篩選）、`dropdown-menu`（列的更多操作）；取得方式同 D-10：CLI 不可用時從 `shadcn@3.8.5` 的 `new-york-v4` 原檔取，只改 `@/lib/utils` → `@/components/ui/utils`；帶入的 `radix-ui` 套件已在 5.3 | PLAN 5.6「不加入」清單與 5.7 的 Phase 2 預告；D-10 | 若 `select` 在 LINE 內建瀏覽器有 focus 問題（5.2 的顧慮）：後台不在 LINE 內用，可接受；真要用手機改題目再退回原生 `<select>` |
+| B19 | 測試（Target 6）：(a) 發布拒絕理由對照表——`validatePublish` 共 13 個 `errors.push(` 訊息模板（`lib/forms/validate.ts` 實數），`tests/unit/forms-publish.test.ts` 既有案例已全部碰到：空表單、key 重複、已發布 key 改型別（含停用題）、single_select < 2 選項、user_select options 非法、show_if 指向不存在／已停用／在後的題目、slot 屬別範本、同 slot 兩題、system slot 缺題、啟用規則 slot 缺題、requiredOptions 缺值、R1 `expect_done`／`status_done` 與 R2 `unreported` 不在選項、一次列出全部原因；U27 以「訊息模板 ↔ 測試」對照表逐一確認並補漏（例如 show_if `in` 指向停用題、`status_done` 多值中只有一值不在選項）；(b) 跨版本昨日計畫：`tests/unit/forms-resolve.test.ts:239`「cross-version: a v2 log (tomorrow_1, disabled p1_text, swapped order) reads the same as v1」已存在，引用並補一例「只改 label 與 order、key 不變」；(c) 新增 `tests/unit/forms-diff.test.ts`、`tests/unit/forms-import.test.ts`（乾跑：§11 日誌以 CSV 形狀餵入 → 預計預警恰 2 筆、跳過既有、`submitted_at` 缺省、跨日錯誤）、`tests/unit/audit.test.ts`（`auditActionLabel`、序列化）、`tests/unit/rules-validation.test.ts`（候選規則對 v1：`expect_done='完工'` 拒存、`R1.enabled=false` 後不查）、`tests/unit/roster.test.ts`（username regex、臨時密碼符合規則、`pendingMilestoneUpdates` 只改未完成節點）、`tests/unit/rerun.test.ts`（`prepareLogRerun`：A05 fixture「9/2 嚴雅齡日誌軟刪後重跑 9/3 → R1 應 closed」）；(d) Target 7 的 e2e 走 CI 本機堆疊（同 T27），`tests/e2e/admin.spec.ts` 在 `afterAll` 還原（B26） | Prompt 2 Target 6／7；§0「lib/rules 與 lib/forms 必須有 Vitest 單元測試」；D-71 | 若對照後發現 `validatePublish` 有訊息無測試：補案例，每條約 15 分鐘【示意】 |
+| B20 | 估時原則同 Phase 1：每項 ≤ 4h（半天）、誠實估、不含前置；總估時 92h【示意】 | 3.1 慣例 | — |
+| B21 | 草稿編輯假設同一時間只有一位 HR 編輯：last-write-wins，不做鎖、不做版本號比對；編輯器頂部顯示「最後儲存 hh:mm」讓第二個人察覺 | §2 HR 是日常管理者（一人）；§0 不新增未列功能 | 若真的兩人同時改：後存的覆蓋先存的；加 `updated_at` 比對拒絕過期寫入約 2h【示意】（`form_versions` 沒有 `updated_at`，要加欄，可加不可刪） |
+| B22 | HR 重跑與匯入的規則執行用**新的純函式** `prepareLogRerun({ log, version, previousLog, previousVersion, existingAlerts, settings })`（放 `lib/forms/submit.ts`，與 `prepareDailyLog` 並列）：以該筆自己的版本 `bySlot`、前一筆用前一筆自己的版本、`runRules` → `reconcile(existing, drafts, now=log.submitted_at)`（D-62：新建與重開的 `created_at` 一律＝該筆 `submitted_at`，歷史資料的 A1 時鐘才不會從按鈕按下的時刻起算）；**不重用 `prepareDailyLog`**——它把 `log_date` 定為 `taipeiDateOf(now)`、把 `form_version_id` 改綁 active 版、對 `existingToday.log_date` 不同即回「已超過可修改時間」，三者對歷史列都不對。關閉預警的新原因（`'submission_deleted'`、`'left'`）走新查詢 `closeOpenAlerts({ submissionId? , userId?, reason, closedBy, now })`（`lib/db/queries/alerts.ts`），型別在該檔宣告，`lib/rules/types.ts` 的 `AlertClosedReason = 'resubmitted'` 與 `reconcile` 都不動（Prompt 2 Forbidden：不改 lib/rules 語意） | A05 (2)(5)；A10；D-62；D-26 (2)；`prepareDailyLog` 現行簽名（`lib/forms/submit.ts:87–104`） | 若 Banson 要「重跑用重跑時刻」：`prepareLogRerun` 的 `now` 改參數，一行 |
+| B23 | seed 不改（4.9、D-07）：`seedForms` 對版本「缺才插入、既有列不改」，fixture 日誌固定綁 v1（`seedDailyLogs` 明寫 `activeVersion: v1`），所以 staging 上 HR 發布 v2 之後 `pnpm db:seed`／`--anchor` 仍可跑；只有 `--verify` 的 `checkInvariants` 會因 `active_version_id ≠ v1` 報錯，而 `--verify` 只在 CI 空庫用。e2e `admin.spec.ts` 發布 v2 後在 `afterAll` 還原：v2 → archived、v1 → published、`active_version_id` → v1、刪 v2（順序受 `form_versions_one_published_idx` 限制），否則同一堆疊重跑時 `flow.spec` 會遇到新題目 | 4.9.2「重跑不刪任何列」；D-07；D-71；`checkInvariants` 只在 `--verify` 呼叫（`seed.ts:910–915`） | 若 Banson 要 `--verify` 也容許 v2：把 invariant 改成「active 指向本範本的 published 版」，半小時 |
+| B24 | `lib/db/types.ts` 為手寫（D-11）：新增 RPC 後手動在 `Database.public.Functions` 加 `publish_form_version: { Args: { p_version_id: string; p_actor_id: string; p_change_note: string }; Returns: string }`，`getAdminClient().rpc('publish_form_version', …)` 才有型別；CI `db` job 有 Docker，U15 驗收欄要求在 CI 以 `pnpm db:types` 產生後 diff 核對（本容器產不出） | D-11；`types.ts` 目前 `Functions` 只有 `set_updated_at` | 若手寫與產生結果不同：以產生為準覆蓋 |
+| B25 | 後台以桌機為主要使用情境（HR 在辦公室改題目），但仍守 Phase 1 的兩條：頁面本體 375px 不得橫向捲動（表格放 shadcn `Table` 自帶的 `overflow-x-auto` 容器，D-38）、`[data-primary]` 按鈕 ≥ 44px；`tests/e2e/mobile.spec.ts` 擴充到 `/admin/users`、`/admin/forms`、`/admin/data`、`/admin/audit` 四個清單頁做 `scrollWidth ≤ 375` 斷言與截圖；草稿編輯器與匯入精靈不做 375px 斷言（拖曳與多欄對映在手機上本來就不合理） | §8 只對前台要求 mobile-first；§13「截圖（手機寬度）」；T28 慣例 | 若 HR 要在手機改題目：編輯器加「上移／下移」按鈕當拖曳備援（B01 的鍵盤感應器已可用） |
+| B26 | e2e Target 7：新增的題目 key `talked_to_manager`、single_select［有,沒有］、`required=false`、無 slot、`order` 排在 `learned` 之後（C-3 人工驗收時 HR 可自行設 required）；spec 建立的新人 username `e2e_admin_nc`（不在 seed 內）、密碼由 `/admin/users` 回傳的臨時密碼取得後走首次改密碼；`afterAll` 依序：刪該新人的 submissions（alerts cascade）→ `auth.admin.deleteUser`（profiles、milestones cascade）→ 還原被編輯的 seed 日誌 answers → 表單版本還原（B23）→ 刪本 spec 產生的 audit 列（`entity_id` 可辨識），讓同一堆疊可重跑 | Prompt 2 Target 7；D-71（e2e 自己還原、不動四位示範新人）；`submissions.user_id` FK restrict（先刪 submissions 才能刪帳號） | 若還原漏一步：下一次 run 的 `global-setup` seed 不會壞（B23），但 `flow.spec` 的卡片數與新題目可能受影響；spec 內以 `test.fail` 保護 |
+| B27 | 名單的權限邊界（§10 只說 hr 與 admin 都能維護名單，沒說 hr 能否碰 admin 帳號）：hr 不得把任何帳號的 role 設為或改為 admin、不得編輯／停用／重設 role=admin 的帳號；任何人（含 admin）不得改自己的 role 與 status；`can(actor,'roster:manage')` 之後再以純函式 `rosterActionAllowed(actor, target, change)`（`lib/auth/roster.ts`）判定，伺服器端強制、UI 同步隱藏選項；`policy.ts` 矩陣不動 | §10「admin 為 hr 的超集」；反向若允許，hr 可以把自己升成 admin 取得規則與設定權限，或停用 Banson 的帳號把 admin 鎖在門外；`lib/auth/policy.ts` 的 `roster:manage` 目前沒有對象檢查 | 若 Banson 要讓 hr 也能建 admin：`rosterActionAllowed` 放寬一格＋測試一例，半小時【示意】 |
+
+### 8.4 任務拆解
+
+估時單位：小時；每項 ≤ 4h。「驗收」欄引用 §6 驗證條文、§9 字面、§10 格、Prompt 2 Target 編號（8.1.2）與 C-3 Phase 2 五步（8.1.4）。純函式（`lib/forms/diff.ts`、`lib/forms/import.ts`、`lib/forms/submit.ts` 的 `prepareLogRerun`、`lib/auth/roster.ts`、`lib/time/milestones.ts`、`lib/db/audit.ts` 的純部分）測試先行；頁面任務只驗 UI 接線、權限與 audit，不重驗規則。所有頁面與 Server Action 的守門依 B13。
+
+#### 8.4.1 任務表
+
+| id | 任務 | 檔案路徑 | 依賴 | 估時 | 驗收條件 | Target |
+|---|---|---|---|---|---|---|
+| U01 | 稽核 helper 與稽核查詢 | `lib/db/audit.ts`、`lib/db/queries/audit.ts`、`tests/unit/audit.test.ts` | — | 2.5 | `writeAudit({ actorId, action, entity, entityId, before, after, reason })` insert 一列 `audit_log`，失敗 throw；`AUDIT_ACTIONS` 常數列出 B12 全部 action 名稱並以 `as const` 匯出型別，`auditActionLabel(action)` 回繁中（未知 action 回原字串）；`listAudit({ actorId?, entity?, dateFrom?, dateTo?, page, pageSize=50 })` 依 `created_at desc`，日期以台北日期轉 `[cutoff 00:00, 次日 00:00)` instant 過濾（經 `lib/time`，查詢層不比較時間）；`audit.test.ts` 只 import 純部分（action 表、label、日期轉區間）。`secrets-boundary` 綠（新檔不讀金鑰） | 1, 4, 5 |
+| U02 | 後台版面、`/admin` 入口、`/hr` 導覽「後台」 | `app/(admin)/admin/layout.tsx`、`app/(admin)/admin/page.tsx`、`app/(front)/hr/layout.tsx`、`tests/unit/app-nav.test.tsx` | — | 2.5 | `layout.tsx` 呼叫 `requireRole(['hr','admin'])`，頁首含登出鈕（Server Action `signOut()` → `/login`），`AppNav` 七項（B14），`role==='hr'` 時不渲染「規則」「設定」兩項（`app-nav.test.tsx` 加一例斷言 `aria-current` 唯一與 hr 版五項）；`app/(admin)/admin/page.tsx` 先 `requireRole(['hr','admin'])` 再 `redirect('/admin/users')`（`guard-coverage` 白名單不擴充）；newcomer／manager／ceo 開 `/admin` → 403（§10 列 5）；未登入 → `/login?next=/admin`（middleware 既有）；`/hr` 的 `HR_NAV` 多「後台」；375px `scrollWidth ≤ 375` | 1, 5 |
+| U03 | shadcn 六個元件 | `components/ui/{dialog,select,switch,tabs,checkbox,dropdown-menu}.tsx` | — | 1.5 | 依 D-10 方式取得 `shadcn@3.8.5` `new-york-v4` 原檔，只改 utils 路徑；`pnpm lint`、`pnpm typecheck`、`pnpm build` 綠；不新增 5.3 以外的 npm 套件（`radix-ui` 已含）；DECISIONS 記元件來源 | 1, 2 |
+| U04 | 查詢層（一）：名單、部門、設定的寫入函式＋輸入純函式 | `lib/db/queries/profiles.ts`、`lib/db/queries/departments.ts`、`lib/db/queries/settings.ts`、`lib/db/queries/milestones.ts`、`lib/auth/roster.ts`、`lib/time/milestones.ts`、`tests/unit/roster.test.ts`、`tests/unit/milestones.test.ts` | — | 3 | `profiles.ts` 新增 `insertProfile(row)`、`updateProfile(id, patch)`（patch 不含 `username`、`id`）、`listProfilesForAdmin({ role?, status?, departmentId?, q? })`（含 left）；`departments.ts` 新增 `insertDepartment`、`updateDepartment`、`deleteDepartment`（FK restrict 的 23503 轉為 `DEPARTMENT_HAS_MEMBERS` 錯誤常數）；`settings.ts` 新增 `updateSettings(entries: Partial<Record<SettingKey, Json>>, updatedBy)`（逐列 update，不 upsert 新 key）；`milestones.ts` 新增 `upsertMilestones(userId, dues)`（`on conflict (user_id, kind)`，只更新 `due_date`）；`lib/auth/roster.ts` 純函式：`USERNAME_PATTERN`（與 `profiles_username_chk` 同一 regex）、`parseUserInput(form)`（zod：username、display_name、role、department_id、manager_id、start_date；role=newcomer 時 start_date 必填）、`generateTemporaryPassword()`（12 碼英數、`crypto.randomInt`、必過 `meetsPasswordRule`）；`lib/time/milestones.ts` 新增 `pendingMilestoneUpdates(existing, startDate)`（只回 `done_at is null` 者的新 due）。測試：username 大寫／空白／33 碼拒絕；100 次產生密碼皆過規則且互不相同；`pendingMilestoneUpdates` 對「D30 已完成」只回 D60／D90 | 1 |
+| U05 | 查詢層（二）：表單版本、資料維護、預警關閉＋`types.ts` 的 RPC 型別 | `lib/db/queries/forms.ts`、`lib/db/queries/submissions.ts`、`lib/db/queries/alerts.ts`、`lib/db/types.ts` | — | 3.5 | `forms.ts` 新增 `listTemplates()`、`listVersions(templateKey)`（含 `published_by` display_name join）、`getDraft(templateKey)`、`createDraft(templateKey)`（select published → insert `version_no=max+1`、23505 → `DRAFT_EXISTS`）、`saveDraft(versionId, questions)`（`.eq('status','draft')`，0 列 → `DRAFT_NOT_FOUND`）、`publishVersion(versionId, actorId, changeNote)`（`.rpc('publish_form_version', …)`，把 `raise exception` 訊息原樣拋出）；`submissions.ts` 新增 `listSubmissionsForAdmin(filters, page)`（B10 篩選、每頁 50、`includeDeleted`）、`getSubmissionById(id)`（任何狀態）、`updateSubmissionAnswers(id, answers)`、`softDeleteSubmission(id, { deletedBy, reason, now })`、`restoreSubmission(id)`、`getNextLog(userId, afterDate)`（`log_date > afterDate`、未刪、最近一筆）、`findWeeklyConflict(userId, targetUserId, weekStart)`；`alerts.ts` 新增 `closeOpenAlerts({ submissionId?, userId?, reason: 'submission_deleted' \| 'left', closedBy, now })`（單一 UPDATE 限 `status='open'`，回筆數）；`types.ts` `Functions` 手動加 `publish_form_version`（B24）。`pnpm typecheck` 綠；`secrets-boundary` 綠 | 2, 4 |
+| U06 | `/admin/departments` CRUD | `app/(admin)/admin/departments/page.tsx`、`app/(admin)/admin/departments/actions.ts`、`app/(admin)/admin/departments/DepartmentList.tsx` | U01, U02, U04 | 3 | `requireRole(['hr','admin'])`＋`can(actor,'roster:manage')`；列表依 `sort_order`；新增／編輯以 dialog；name 空白或重複（23505）回繁中錯誤；刪除有成員的部門 → 「仍有成員，請先移轉」（`DEPARTMENT_HAS_MEMBERS`）；每個動作 audit `department.create／update／delete`（before／after 整列）；seed 四個部門刪除任一皆被擋；375px 不橫向捲動 | 1 |
+| U07 | `/admin/users` 列表＋新增（建 Auth 使用者、profile、三筆 milestones、臨時密碼） | `app/(admin)/admin/users/page.tsx`、`app/(admin)/admin/users/actions.ts`、`app/(admin)/admin/users/UserTable.tsx`、`app/(admin)/admin/users/UserForm.tsx` | U01, U02, U04 | 4 | 列表（篩選角色、狀態、部門，含 left）每列：username、display_name、角色、部門、主管、到職日、狀態；新增表單依 `parseUserInput`（B08）驗證，hr 建立時 role 選項不含 admin（B27，伺服器端同樣拒絕），username 小寫規則不符或已存在（`profiles_username_key` 23505 或 `auth.admin.createUser` 回 email 已存在）回繁中；成功後 `auth.admin.createUser({ email: usernameToEmail(username), password: 臨時密碼, email_confirm: true })` → `insertProfile`（`must_change_password=true`）→ newcomer 且有 start_date 時 `upsertMilestones(id, milestonesFor(start_date))` 恰 3 筆 → audit `user.create`（after 不含密碼）→ 臨時密碼由 Server Action 回傳值（`FormActionState`）帶回，在 `dialog` **只顯示一次**（可複製、關閉即消失，不經 `redirect()` query，Q3）；Auth 建成功但 profile 失敗時 `auth.admin.deleteUser` 回滾並回錯；新帳號以臨時密碼登入 → 被導改密碼頁（T07 既有）；375px 表格自行捲動 | 1 |
+| U08 | `/admin/users` 編輯、停用／啟用、重設密碼 | `app/(admin)/admin/users/actions.ts`、`app/(admin)/admin/users/UserForm.tsx`、`app/(admin)/admin/users/[id]/page.tsx` | U07 | 4 | 編輯抽屜：display_name／role／department／manager／start_date／status，username 唯讀；`manager_id` 不得等於自己（`profiles_manager_id_chk`）；改 `start_date` 時 `pendingMilestoneUpdates` 只更新未完成節點並寫入 audit after；**停用**（B08）：`status='left'`＋`updateUserById(id,{ ban_duration:'876000h' })`＋`closeOpenAlerts({ userId, reason:'left', closedBy: actor.id })`＋audit `user.deactivate`（after 含關閉的 alert 數）；被停用者既有 session 下一次請求 → `/login?reason=disabled`（既有 `disabled-account.spec` 邏輯）；**啟用**（Q4）：`status='active'`＋`ban_duration:'none'`＋audit `user.reactivate`；**重設密碼**（Q3）：`generateTemporaryPassword()` → `updateUserById(id,{ password })` → `must_change_password=true` → audit `user.reset_password`（before／after 不含密碼）→ 只顯示一次；不提供刪除；對自己停用 → 拒絕「不能停用自己」；**權限邊界**（B27，伺服器端強制、UI 同步隱藏）：hr 對 role=admin 的帳號編輯／停用／重設密碼 → 拒絕；hr 把任何帳號 role 改為 admin → 拒絕；任何人改自己的 role 或 status → 拒絕（§10 admin 為 hr 超集，反向不允許；純函式 `rosterActionAllowed(actor, target, change)` 放 `lib/auth/roster.ts`，`roster.test.ts` 逐格測，記 DECISIONS）；停用後在 CI 堆疊實測：被 ban 的帳號以既有 cookie 開 `/me/today` → 落 `/login?reason=disabled`（驗證 B08「GoTrue 下一次請求即拒絕」，結果記 DECISIONS） | 1 |
+| U09 | `/admin/forms` 範本列表、`/admin/forms/[key]` 版本列表、建立草稿 | `app/(admin)/admin/forms/page.tsx`、`app/(admin)/admin/forms/[key]/page.tsx`、`app/(admin)/admin/forms/[key]/actions.ts` | U01, U02, U05 | 3 | `requireRole(['hr','admin'])`＋`can(actor,'form:manage')`；範本頁三列（name、目前 active 版本號、發布時間、有無草稿）；`[key]` 不在三個固定 key → 404；版本列表每列：版本號、狀態（draft／published／archived）、發布時間（台北）、發布者、change_note、題數；「建立草稿」只在無 draft 時顯示 → `createDraft` 複製 published 的 `questions` 為 v(n+1) draft → audit `form.draft_create` → 導向 `/admin/forms/[key]/draft`；再按一次（另一分頁）→ `DRAFT_EXISTS` → 「已有草稿，請繼續編輯」；seed 下三範本各顯示 v1 published、無草稿 | 2 |
+| U10 | 差異摘要純函式 | `lib/forms/diff.ts`、`tests/unit/forms-diff.test.ts` | — | 2.5 | `diffQuestionVersions(prev, next) → QuestionDiff[]`（B06）：`{ key, kind: 'added'\|'disabled'\|'reenabled'\|'changed'\|'type_changed', fields?: ('label'\|'options'\|'slot'\|'show_if'\|'order'\|'required'\|'help'\|'placeholder')[], before?, after? }`；`order` 只在相對次序改變時列（重編號 1..n 不算）；`options` 以陣列深等比較；`show_if` 以結構比較；`summarizeDiff(diffs)` 回繁中一句話（「新增 1 題、停用 1 題、修改 2 題」）。測試：v1 對自身 → 空；T10 跨版本 v2 → `p1_text` disabled、`tomorrow_1` added、其餘 order 變更；只改 label → `changed` fields `['label']`；型別改變 → `type_changed` | 2 |
+| U11 | 拒絕理由對照表與既有測試補漏（Target 6） | `tests/unit/forms-publish.test.ts`、`tests/unit/forms-resolve.test.ts` | — | 2 | 在 `forms-publish.test.ts` 頂部以表格註解列出 `validatePublish` 的 13 個訊息模板（`lib/forms/validate.ts` 每個 `errors.push`）與對應 `it()` 名稱，並加一個測試：對 `validate.ts` 原始碼掃描 `errors.push(` 的數量 = 對照表列數（模板增減時測試提醒補案例）；補案例：`status_done` 多值中僅一值不在選項（訊息只列該值）、show_if `in` 指向停用題、`user_select` 與 `single_select` 同時錯誤各自列出；`forms-resolve.test.ts` 補「v2 只改 label 與 order、key 與 slot 不變 → `readYesterdayPlan` 與 v1 相同」（Target 6 第二句字面）；三 TZ 矩陣綠 | 6 |
+| U12 | 草稿編輯器（一）：題目列表、拖曳排序、停用／重新啟用、即時存檔 | `app/(admin)/admin/forms/[key]/draft/page.tsx`、`app/(admin)/admin/forms/[key]/draft/actions.ts`、`app/(admin)/admin/forms/[key]/draft/DraftEditor.tsx`、`app/(admin)/admin/forms/[key]/draft/QuestionRow.tsx`、`package.json`、`pnpm-lock.yaml` | U09, U03 | 4 | 安裝 B01 三個套件（8.6 核准後）；`draft/page.tsx` 無草稿 → 導回 `[key]`；`DraftEditor`（client，不 import `lib/db`）以 `sortByOrder` 顯示題目列（key、label、type、slot、required、disabled 灰階），dnd-kit 垂直排序＋鍵盤感應器，放下後 `order` 重編 1..n；「停用／重新啟用」切 `disabled`（不提供刪除，A07）；每次變更 debounce 800ms 呼叫 `saveDraft` Server Action（B04）：`parseQuestions` 不過 → 回 `FormActionState.errors`，編輯器顯示但保留本機狀態；成功 → 顯示「已儲存 hh:mm」（B21）；audit `form.draft_saved`；`saveDraft` 對非 draft 版本 → `DRAFT_NOT_FOUND`（另一分頁已發布）；Playwright 不測拖曳（U28 以鍵盤感應器或改 order 欄位驗證順序） | 2 |
+| U13 | 草稿編輯器（二）：新增／編輯抽屜（key、label、type、options、required、help、placeholder、show_if、slot、disabled） | `app/(admin)/admin/forms/[key]/draft/QuestionDrawer.tsx`、`app/(admin)/admin/forms/[key]/draft/DraftEditor.tsx`、`lib/forms/validate.ts`、`tests/unit/forms-validate.test.ts` | U12 | 4 | 抽屜（shadcn `sheet`）欄位齊 §6 Question 全部屬性：`key`（新題可填、已發布過的 key 唯讀——判定＝存在於 `previousPublished`；同版本重複即時提示）、`type` 六種（已發布過的 key 型別唯讀）、`options`（single_select 逐行；user_select 只能選 newcomer／manager，A12）、`required`／`disabled` switch、`help`／`placeholder`、`show_if`（目標題下拉只列 `order` 較小且未停用的題；op 四種；`eq`／`neq` 值為目標題 options 下拉或文字、`in` 多選、`not_empty` 無值）、`slot` 下拉**只列合法 slot**（`SLOTS` 過濾 `SLOT_SPECS[slot].template === key` 且未被其他未停用題綁定；可選「不綁定」）；`lib/forms/validate.ts` 新增純函式 `slotOptionsFor(templateKey, questions, currentKey)` 與 `showIfTargetsFor(questions, currentKey)` 供抽屜與測試共用（`forms-validate.test.ts` 各加兩例：manager_response 只列 `response.*`；已綁的 slot 不列）；儲存即觸發 U12 的即時存檔；新題預設 `order`＝最後＋1、`required=false`、`disabled=false` | 2 |
+| U14 | 即時預覽＋發布對話框（驗證、差異摘要、change_note） | `app/(admin)/admin/forms/[key]/draft/DraftPreview.tsx`、`app/(admin)/admin/forms/[key]/draft/PublishDialog.tsx`、`app/(admin)/admin/forms/[key]/draft/actions.ts` | U12, U10 | 3 | 預覽（B05）：`FormRenderer` 餵 `parseQuestions(draft)` 結果、`submitDisabled`、no-op action、`userOptions` 由 page 傳入；在預覽裡選 `blocker='沒有'` → `blocker_detail` 消失（既有 `resolveVisibility`）；解析失敗 → 顯示原因；「發布」按鈕開 dialog：先呼叫 Server Action `previewPublish`（回 `validatePublish(draft, parseRulesSettings(settings.rules), { templateKey, previousPublished })` 的錯誤清單＋`diffQuestionVersions` 摘要）；有錯 → 列出全部原因、發布鈕停用（§6「任一失敗即拒絕並列出原因」）；無錯 → 顯示差異摘要、`change_note` 必填 → 呼叫 U15 的 `publishDraft` | 2 |
+| U15 | 發布 RPC migration＋發布 Server Action＋CI／psql 驗證 | `supabase/migrations/<ts>_rpc_publish_form_version.sql`、`app/(admin)/admin/forms/[key]/draft/actions.ts`、`lib/db/types.ts`、`.github/workflows/ci.yml`、`docs/DECISIONS.md` | U05, U14 | 3 | migration 內容依 B03；`supabase db reset` 從空庫到最新無錯（CI `db` job；`db` job 的 schema 檢查加一條：`pg_proc` 有 `publish_form_version` 且 `has_function_privilege` 對 `anon`／`authenticated`／`public` 皆為 false——migration 必須 `revoke … from public, anon, authenticated`，B03）；psql 實測：對 draft 呼叫 → 舊 published 變 archived、draft 變 published、`active_version_id` 指向新版、`audit_log` 多一列 `form.publish`；對已 published 的 id 再呼叫 → `raise exception`「只能發布草稿」且四表皆不變；中途撞 `form_versions_one_published_idx` 不可能發生（先 archived）。`publishDraft(versionId, changeNote)` Server Action：`requireRole`＋`can('form:manage')` → 重新讀 draft 與 published → `validatePublish` 再跑一次（防止預覽後又被改）→ `publishVersion` RPC → `revalidatePath('/me/today')`；發布後洪湘庭開 `/me/today` 立即渲染新版（Target 2「下一次開啟即使用新版」）；`/me/history`、`/manager/newcomer/[id]` 對 9/2、9/3 舊日誌仍以 v1 label 顯示（Target 2「舊日誌以舊版 label 顯示」，D-34 既有）；CI 有 Docker 的 job 跑 `pnpm db:types` 並 `git diff --exit-code lib/db/types.ts`（B24；手寫與產生不同即失敗）——若 diff 過大屬 Phase 1 手寫殘差，以產生檔覆蓋並記 DECISIONS | 2 |
+| U16 | `/admin/rules`（admin）：開關、參數、slot 綁定狀態、比對值驗證 | `app/(admin)/admin/rules/page.tsx`、`app/(admin)/admin/rules/actions.ts`、`app/(admin)/admin/rules/RulesForm.tsx`、`lib/forms/validate.ts`、`tests/unit/rules-validation.test.ts` | U01, U02, U04 | 4 | `requireRole(['admin'])`＋`can(actor,'rules_settings:manage')`；hr 開 → 403（§10 列 7）；頁面：R1（enabled、`expect_done` 下拉＝`plan.item1.expect` 所綁題的 options、`status_done` 多選＝`result.item1.status` 所綁題的 options）、R2（enabled、`unreported` 下拉＝`result.blocker.status` 所綁題 options）、R3／A1 只有 enabled；每條規則下方列 `RULE_REQUIRED_SLOTS[rule]` 每個 slot → active 版 `key／label` 或「未綁定」；`lib/forms/validate.ts` 新增 `validateRulesAgainstVersion(questions, candidateRules)`（薄包裝：`validatePublish(questions, candidateRules, { templateKey:'newcomer_daily', previousPublished: questions })` 只回「規則 」開頭與「語意槽 」開頭的錯誤）；儲存：`parseRulesSettings` 形狀不合 → `rulesSettingsErrors` 列出；比對值不在選項 → 拒存並列出（§9 字面）；通過 → `updateSettings({ rules }, actor.id)`＋audit `rules.update`；`settings.rules` 現值非法時頁面仍可載入並顯示原因（D-24）。測試：對 v1 `expect_done='完工'` → 3 條錯誤；`R1.enabled=false` 時同值通過；R2 `unreported='有，還沒回報'` → 1 條 | 3 |
+| U17 | `/admin/data` 列表與抽屜（篩選、分頁、該筆版本 label） | `app/(admin)/admin/data/page.tsx`、`app/(admin)/admin/data/DataTable.tsx`、`app/(admin)/admin/data/SubmissionDrawer.tsx`、`components/dashboard/SubmissionDetail.tsx`、`tests/unit/submission-detail.test.tsx` | U02, U05 | 4 | `requireRole(['hr','admin'])`＋`can(actor,'data:manage')`；篩選：範本（三選一／全部）、人（下拉＝`listProfiles()`，比對 `user_id` 或 `target_user_id`）、日期區間、有無預警、來源、含已刪；每頁 50，URL query 保存篩選；列：範本、填寫者、對象、日期、`submitted_at`（台北）、來源、預警數／狀態、已刪標記；抽屜：`SubmissionDetail`（server-safe 純元件，`components/dashboard`，D-32 落點）以該筆 `form_version_id` 的版本經 `resolveVisibility` 逐題 `label：答案`（§6「顯示歷史時用該版本的 label」）、預警（`AlertBadge`）、回應（slot 讀）、刪除資訊；seed 下：篩「有預警」得 2 筆；篩「嚴雅齡」得 3 筆（自己的 2 筆日誌＋以她為 `target_user_id` 的 1 筆回應）；`tests/unit/submission-detail.test.tsx` 以 §11 fixture 渲染嚴雅齡 9/3 斷言含「持續中」與 R1 兩項 | 4 |
+| U18 | `prepareLogRerun` 純函式＋重跑落庫＋「重跑該筆規則」按鈕 | `lib/forms/submit.ts`、`app/(admin)/admin/data/actions.ts`、`tests/unit/rerun.test.ts` | U05, U17 | 3 | `prepareLogRerun({ log, version, previousLog, previousVersion, existingAlerts, settings })`（B22）：版本解析失敗 → `{ ok:false, reason }`；成功 → `{ ok:true, alertPlan }`（`reconcile(existing, runRules(...), now=log.submitted_at)`）；Server Action `rerunSubmission(id)`：只對 `newcomer_daily` 未刪列，載入該筆版本、`getPreviousLog(user_id, log_date)` 與其版本、`listAlertsForSubmission`、settings → `applyAlertChanges` → audit `submission.rerun`（after＝`{ inserted, updated, closed, reopened }`）；另一個內部函式 `rerunNextLog(userId, logDate)`（`getNextLog` → 同一路徑）供 U19／U20 呼叫。測試（A05 fixture；`existingAlerts` 用 fixture 的 responded 版本與另一組改成 `status='open'` 的版本各跑一次）：嚴雅齡 9/3 重跑 → 全 untouched；把 9/2 視為已刪（previousLog=null）重跑 9/3 → responded 版 R1 untouched（A10）、open 版 R1 `close`（reason `resubmitted`，因走同一 `reconcile`；`closed_reason` 字面沿 A10，DECISIONS 記「重跑導致的關閉沿用 resubmitted」）；把 9/2 `p1_expect` 改「跨日」→ open 版 R1 `updateDetail` 只剩項目 3、`created_at` 不變；洪湘庭 9/3 改 `blocker='沒有'` 後重跑 → R2 close；`created_at` 對 insert／reopen 等於 `submitted_at` | 4 |
+| U19 | `/admin/data` 編輯答案（該筆版本驗證、原因必填、audit、重跑本筆與下一筆） | `app/(admin)/admin/data/actions.ts`、`app/(admin)/admin/data/EditAnswersForm.tsx` | U18 | 3.5 | 編輯表單以該筆版本 `questions` 餵 `FormRenderer`（`initialAnswers`＝現值；`beforeQuestion` 不用），外包一層 client `EditAnswersForm`：`reason` 以 state 持有並 `editAnswers.bind(null, id, reason)`（`FormRenderer` 的 FormData 只含可見題目，沒有放 reason 的位置，D-25 (2)）；Server Action `editAnswers(id, reason, formData)`：`reason` 空 → 錯誤「請填寫修改原因」；`validateAnswers(該筆版本, raw)` 錯誤回到題目下；通過 → `updateSubmissionAnswers`（不改 `form_version_id`、不改 `submitted_at`）→ audit `submission.edit`（before／after answers、reason）→ 若 `newcomer_daily`：`rerunSubmission(id)`＋`rerunNextLog`；seed 實測（A10：只有 **open** 預警會被重算，`responded` 一律不動）：把洪湘庭 9/3 `blocker` 改「沒有」→ R2 變 closed（resubmitted）；把洪湘庭 9/3 `blocker_detail` 改字 → R2 detail 更新、`created_at` 不變；把嚴雅齡 9/3 三項改「完成」→ R1 已 responded，**不變**（抽屜提示「已回應的預警不重算」）；`/admin/audit` 出現該筆 | 4 |
+| U20 | `/admin/data` 軟刪除與還原 | `app/(admin)/admin/data/actions.ts`、`app/(admin)/admin/data/SubmissionDrawer.tsx` | U18 | 3.5 | 軟刪除：dialog 要求原因 → `softDeleteSubmission`（`deleted_at=now`、`deleted_by=actor`、`delete_reason`）→ `newcomer_daily` 時 `closeOpenAlerts({ submissionId, reason:'submission_deleted', closedBy: actor.id })`（responded 不動）＋`rerunNextLog` → audit `submission.delete`；已刪列在列表灰階、抽屜顯示刪除者／原因／時間；還原：daily 先 `getLogByDate(user, log_date)` 有未刪列 → 拒絕「同人同日已有另一筆，請先刪除另一筆」；weekly 先 `findWeeklyConflict`；通過 → `restoreSubmission`（清三欄）→ `rerunSubmission`＋`rerunNextLog` → audit `submission.restore`；被刪日誌的 alerts 不再出現在 `/hr`（`listAlertsWithSubmission` 既有 join 過濾，A05 (1)）；指向被刪日誌的 `manager_response` 列不動（B10），列表標「對象日誌已刪除」；manager_response 的還原先以自然鍵 `(user_id, target_submission_id)` 查未刪列（B17 (f) 的索引）；seed 實測（A10：只有 open 預警會變）：軟刪洪湘庭 9/3 → R2 `closed('submission_deleted')`；還原 → R2 reopen（`created_at`＝9/3 `submitted_at`）；軟刪嚴雅齡 9/2 → 9/3 的 R1 已 responded，**不變**；刪回應列（manager_response）→ 不重跑、對應 alert 仍 responded（§7 保留）——抽屜提示「刪除回應不會改變預警狀態」 | 4 |
+| U21 | `/admin/data` CSV 匯出（目前篩選結果） | `app/api/export/admin/route.ts`、`lib/db/csv.ts`、`tests/unit/csv.test.ts` | U17 | 2.5 | Route Handler GET，query 同列表篩選；未登入 401、非 hr／admin 403（`requireRole(['hr','admin'])`＋`can('csv:export')`；manager／ceo 的匯出只有 `/api/export/newcomer/[id]`，§10 列 9「同部門」）；`lib/db/csv.ts` 新增純函式 `buildAdminCsvRows({ submissions, versions, alerts, profiles })`（B10 欄位：固定欄＋各範本題目欄，有 slot 的題表頭用 slot 名、無 slot 用 `label (key)`；跨版本同 slot 併同一欄）；`newcomerCsv` 不動；`csv.test.ts` 加：嚴雅齡 9/3 列 `result.item1.status='持續中'`、`alerts='R1:responded'`、`source='app'`；含已刪列時 `deleted_at` 有值；BOM／CRLF／公式防護沿用 | 4 |
+| U22 | CSV 匯入（一）：解析、欄位對映、乾跑純函式 | `lib/forms/import.ts`、`app/(admin)/admin/data/import/page.tsx`、`app/(admin)/admin/data/import/actions.ts`、`app/(admin)/admin/data/import/ImportWizard.tsx`、`tests/unit/forms-import.test.ts`、`package.json`、`pnpm-lock.yaml` | U18, U03 | 4 | 安裝 `papaparse`＋`@types/papaparse`（8.6 核准後）；`ImportWizard`（client）：選檔 → papaparse（`header:true`、`skipEmptyLines`）→ 顯示欄名 → 對映（B11：`username`、`log_date` 必填；`submitted_at` 可選；其餘欄 → newcomer_daily slot 下拉或「忽略」）→ 送 `dryRunImport(mapping, rows)`；`lib/forms/import.ts` 純函式 `prepareImport({ rows, mapping, activeVersion, versionsById, profilesByUsername, existingLogs, settings, defaultSubmitTime:'17:00' })` → `{ rows: ImportRowResult[], rerunTargets: { userId, logDate }[], summary: { total, valid, errors, skipped, alerts: { R1, R2 }, reruns } }`（`versionsById`＝`existingLogs` 用到的版本，前一筆以自己的版本解 slot，B22，缺版本 → 該列 error `ERROR_PREVIOUS_VERSION_MISSING`，`lib/forms/submit.ts` 既有常數；`rerunTargets`＝匯入後前一筆變成匯入列的既有 DB 日誌，A05 (5)），每列：`status: 'ok'\|'error'\|'skip'`、`log_date`、`submitted_at`（含 `defaulted: boolean`）、`answers`（slot → key，未對映 key 為 null，每格先 `unescapeCsvFormulaGuard` 再 trim）、`alertPlan`、`messages[]`；「前一筆」＝同人 `log_date` 較小者中，DB 既有未刪日誌與同批 ok 列取最近；錯誤：username 不存在／非 newcomer（`status='left'` 的 newcomer 可匯入）、同批重複 (username, log_date) 的後列、`log_date` 非 `isDateString`、`taipeiDateOf(submitted_at) !== log_date`、`validateAnswers` 錯誤（列出題目 label）；`prepareImport` 內只 import `lib/forms`、`lib/rules`、`lib/time`、`lib/db/csv.ts`（純），無 `server-only`。測試：把 §11 8 筆日誌轉成 CSV 列（slot 欄名）→ 乾跑得 `alerts {R1:1, R2:1}`、無錯；同批含 9/2 與 9/3 時 9/3 的前一筆取自同批；`existingLogs` 已有嚴雅齡 9/3 → 該列 `skip`；同批兩列同人同日 → 後列 error；`existingLogs` 有 9/2 但 `versionsById` 缺其版本 → 9/3 列 error；`existingLogs` 只有嚴雅齡 9/3、匯入 9/2 → `rerunTargets` 恰一筆（嚴雅齡 9/3）；`submitted_at` 缺 → `defaulted:true` 且 `log_date` 17:00 台北；`submitted_at` 為次日凌晨 → error；`'=SUM(1)` 開頭的格經還原後為 `=SUM(1)` | 4 |
+| U23 | CSV 匯入（二）：預覽、確認寫入、整批 audit | `app/(admin)/admin/data/import/actions.ts`、`app/(admin)/admin/data/import/ImportPreview.tsx` | U22 | 3.5 | 預覽頁：前 5 列（各欄對映後的值、`submitted_at` 標「預設」）、總計（總列／有效／錯誤／跳過）、預計產生預警數 R1／R2 各幾筆、將重跑的既有日誌數（`rerunTargets`，B11）、錯誤列清單（列號＋原因）、跳過清單（username＋日期）；「確認匯入」只在有效 > 0 且錯誤 = 0（或勾選「略過錯誤列」）時可按；`runImport`：重讀 active 版本 id，與乾跑時不同 → 拒絕「表單版本已變更，請重新預覽」；逐列 `insertDailyLog({ source:'import', form_version_id, submitted_at, updated_at: submitted_at })`＋`applyAlertChanges(alertPlan, …)`（`created_at=submitted_at`，D-62）；同人同日在寫入時才發現既有（23505）→ 計入跳過；全部寫完後對 `rerunTargets` 逐筆走 U18 的 `rerunSubmission` 路徑（同一筆只跑一次，A05 (5)）；完成回報實際筆數，整批一筆 audit `import.run`（`entity='submissions'`、`entity_id`＝批次 uuid、after＝{ 檔名、對映、筆數、跳過、預警數、重跑既有日誌數與 `{ inserted, updated, closed, reopened }` 合計 }）；匯入後 `/admin/data` 篩「來源＝import」可見；`/hr` 三指標與時間軸讀得到匯入列（無需特別處理）；e2e 不測匯入（無檔案上傳穩定路徑），以單元測試＋C-2 週 3 雙軌人工驗證 | 4 |
+| U24 | `/admin/settings`（admin） | `app/(admin)/admin/settings/page.tsx`、`app/(admin)/admin/settings/actions.ts`、`app/(admin)/admin/settings/SettingsForm.tsx` | U01, U02, U04 | 2.5 | `requireRole(['admin'])`＋`can(actor,'rules_settings:manage')`；hr 開 → 403；三欄依 B15 驗證（`HH:mm` 用 `parseDashboardSettings` 的規則；門檻整數 1–168；`workweek` 兩值）；「Phase 3 通知設定」區塊唯讀文字，無 input；儲存 → `updateSettings` 三列＋audit `settings.update`（before／after 三值）→ `revalidatePath('/hr')`、`/ceo`、`/manager`；C-3 第五步：門檻改 12 → `/hr` 逾時數變化（驗證法見 8.7.2）；改回 24 後恢復 | 5 |
+| U25 | `/admin/audit` 唯讀列表 | `app/(admin)/admin/audit/page.tsx`、`app/(admin)/admin/audit/AuditTable.tsx` | U01, U02 | 2.5 | `requireRole(['hr','admin'])`＋`can(actor,'audit:read')`；篩選人（下拉）、實體（下拉：profiles／departments／form_versions／settings／submissions）、日期區間；每頁 50、上下頁；列：時間（台北）、操作者、動作（繁中＋原 action）、實體／id、原因；before／after `<details>` 展開為縮排 JSON；頁面 `main` 內無 `form` 以外的寫入元素（篩選 form 為 GET）；C-3 第四步：HR 改一筆答案後在此看到 `submission.edit` 含 before／after 與原因；375px 不橫向捲動 | 5, 7 |
+| U26 | Phase 1 遺留：D-56 `compareInstant` 抽到 `lib/time`；D-67 依 Q2 修三指標母體；D-35 (3) 的 `manager_response` 自然鍵索引 | `lib/time/index.ts`、`lib/db/csv.ts`、`components/dashboard/HistoryList.tsx`、`components/dashboard/Timeline.tsx`、`app/(front)/hr/page.tsx`、`app/(front)/ceo/page.tsx`、`app/(front)/manager/newcomer/[id]/actions.ts`、`supabase/migrations/<ts>_manager_response_unique_idx.sql`、`.github/workflows/ci.yml`、`tests/unit/ceo-dashboard.test.tsx`、`tests/unit/time.test.ts`、`docs/RUNBOOK.md` | — | 3 | `lib/time/index.ts` 匯出 `compareInstant(a, b)`（以 `toInstant` 比較，`+08:00` 與 `Z` 同瞬間回 0），三處改 import、本地定義刪除，`time.test.ts` 加兩例；`/hr`、`/ceo` 的 `listAlertsWithSubmission()` 改為不限 `userIds`（全量，含 left；`alertRates()` 已傳 `listProfiles()` 排除 sample），其他六個區塊母體不變；`ceo-dashboard.test.tsx` 的 `viewAt()` 同步並加兩例：把嚴雅齡標成 `left` 後主管回應率仍 1/2（responded 保留）；把洪湘庭標成 `left` 並把她的 R2 關閉（`closed_reason='left'`）後主管回應率 1/1（分母少一筆，Q2 明列的殘餘效應）；RUNBOOK 4.5／6.4／9.5 改寫為新行為；D-67 標「已解」；(g) migration 只建 partial unique index `submissions_one_response_idx`（B17 (f)），`supabase db reset` 綠、`db` job 加 `pg_indexes` 檢查；回應 Server Action 對 23505 回「已送出過，請重新整理」（取代 `console.warn` 路徑），seed 的兩筆回應不衝突；若 Q2 不採建議則本任務只做 D-56 並修訂 A02（DECISIONS 新列） | — |
+| U27 | 單元測試補齊：guard 矩陣不變、稽核、匯入、規則驗證、重跑（彙整檢查） | `tests/unit/guard.test.ts`、`tests/unit/audit.test.ts`、`tests/unit/forms-import.test.ts`、`tests/unit/rules-validation.test.ts`、`tests/unit/rerun.test.ts`、`tests/unit/timezone-lint.test.ts` | U11, U16, U18, U22 | 2 | `guard.test.ts` 表長仍 60（矩陣未動，§10 六個後台 Action 各角色格已在 Phase 1 覆蓋）；`guard-coverage.test.ts` 對 `app/(admin)/**` 全部 `page.tsx`／`actions.ts` 與 `app/api/export/admin/route.ts` 綠（人工列舉附在 PR）；`timezone-lint` 對新檔綠（匯入的日期解析全走 `lib/time`）；`pnpm test` 三 TZ 全綠且測試數 > Phase 1 的 652；`secrets-boundary`：新的 `'use client'` 檔（DraftEditor、ImportWizard、抽屜）不 import `lib/db` | 6 |
+| U28 | e2e：Target 7 流程＋後台 375px 稽核＋還原 | `tests/e2e/admin.spec.ts`、`tests/e2e/mobile.spec.ts`、`tests/e2e/fixtures/accounts.ts`、`.github/workflows/ci.yml` | U08, U15, U19, U25 | 4 | `admin.spec.ts`（`test.skip(!hasSupabaseEnv())`、`test.setTimeout(240_000)`、單一 test 串接三角色）：hr 登入 → `/admin/users` 新增 `e2e_admin_nc`（newcomer、工務、工務主任、start_date＝今天）→ 取畫面上的臨時密碼 → 登出 → 新人以臨時密碼登入 → 導改密碼頁 → 改完落 `/me/today`（Target 7「新人登入」）→ 登出 → hr `/admin/forms/newcomer_daily` 建立草稿 → 編輯器新增 `talked_to_manager`（B26）→ 發布（change_note「e2e」）→ 版本列表出現 v2 published、v1 archived → 登出 → 新人 `/me/today` 出現「今天有沒有跟主管講到話」→ 登出 → hr `/admin/data` 篩 Darren 9/3 → 編輯 `learned` 為「e2e-edited」原因「e2e」→ `/admin/audit` 最上一列為 `submission.edit`、展開 after 含「e2e-edited」；`afterAll` 依 B26 還原（先 alert／submission → 帳號 → 日誌 answers → 版本 → audit 列）並斷言 `active_version_id` 回到 v1；`mobile.spec.ts` 加四個後台清單頁（B25）截圖與 `scrollWidth ≤ 375`；`accounts.ts` 加 `admin: byUsername(BASE_PROFILES,'banson')`；CI `e2e` job 不改步驟；本機無 Docker → CI 連跑兩次全綠代驗（D-72） | 7 |
+| U29 | RUNBOOK 與 DECISIONS | `docs/RUNBOOK.md`、`docs/DECISIONS.md`、`README.md` | U08, U15, U20, U25 | 2.5 | RUNBOOK 新增第 10 章「後台（Phase 2）」：10.1 名單（新增、臨時密碼只顯示一次、停用／啟用、重設密碼、到職日改動只重算未完成節點）；10.2 部門；**10.3 如何安全地改題目**（Target 8 字面：先建立草稿 → 改 → 看預覽 → 發布；key 發布後不可改、只能停用不能刪；會被驗證擋下的情況逐條列：改型別、單選少於 2 個選項、show_if 指到後面或停用題、規則所需 slot 沒綁或綁兩題、把「完成」「昨日無此項」「有，尚未回報」「已讀，無需處理」「需 HR 協助」改字、slot 綁錯範本；被擋時怎麼辦）；10.4 規則參數（admin；改字先改表單選項再改參數）；10.5 資料維護（編輯／軟刪／還原／重跑會連動哪些預警；匯入步驟與 Sheet 匯出為 UTF-8 CSV 的做法）；10.6 設定；10.7 稽核。第 5、6 章改為「Phase 2 起請用 /admin/users；路 A／B 保留為緊急備援」；9.1 表格逐列改為「已有 UI」；9.2 標「Phase 2 起請用 /admin/settings 與 /admin/rules」；HR 照 10.3 實際改一題並發布，不需工程師即通過。DECISIONS 至少追加：RPC 發布與交易邊界（B03、B12）；`prepareLogRerun` 與 `now` 口徑（B22）；停用用 `ban_duration` 而非 `admin.signOut`（B08）；臨時密碼機制（Q3）；啟用（Q4）；匯入只做 newcomer_daily（Q1）；D-67 解法（Q2）；shadcn 六元件來源；dnd-kit／papaparse 安裝；types.ts RPC 型別（B24）；e2e 還原策略（B26）；重跑導致關閉沿用 `resubmitted`（U18）；hr 不得重設 admin 密碼（U08） | 8 |
+| U30 | §13 完成定義總驗收＋PR | `docs/PLAN.md`（8.4.1 勾選、8.7 回填）、`docs/DECISIONS.md`、`.env.example` | U26, U27, U28, U29 | 2 | CI lint／typecheck／unit（三 TZ）／db／e2e 全綠並綁 head sha（D-70）；`supabase db reset` 從空庫到最新（含新 migration）；`pnpm db:seed --verify` 兩次一致（筆數同 Phase 1：form_versions 3——e2e 已還原）；`.env.example` 不變（Phase 2 無新變數，grep 驗證同 T30）；DECISIONS 已更新；staging：`supabase db push` 新 migration → 用手機與桌機走 C-3 Phase 2 五步（8.7.2）；PR 描述含：測試方式、後台四頁 375px 截圖＋桌機編輯器截圖、staging URL、8.7 對照表、Prompt 2 Checkpoints 的檔案變更總表；PR 開給人審、不合併、不推 main | 1–8 |
+
+**估時合計：92 小時**【示意】（至 U15「表單可發布、C-3 前三步可走」約 51 小時；名單與部門 U06–U08 約 11 小時）。
+
+#### 8.4.2 Target 覆蓋對照
+
+| Prompt 2 Target | 覆蓋任務 | 驗收在哪裡 |
+|---|---|---|
+| 1 `/admin/users`、`/admin/departments` CRUD、停用、重設密碼、三筆 milestones、audit | U01、U04、U06、U07、U08 | U07（建帳號＋節點恰 3 筆）、U08（停用／啟用／重設）、U06（部門）、U25（每次寫入在稽核可見） |
+| 2 `/admin/forms` 版本列表、草稿、編輯器（拖曳、增改停、show_if、slot 下拉、預覽）、發布（驗證、差異、change_note）、新人下次即新版、舊日誌舊 label | U03、U05、U09、U10、U12、U13、U14、U15 | U15 驗收欄（發布後 `/me/today` 用新版、`/me/history` 舊 label）、U28 e2e |
+| 3 `/admin/rules` admin only、開關與參數、slot 綁定狀態、拒存並說明 | U16 | U16 驗收欄與 `rules-validation.test.ts` |
+| 4 `/admin/data` 篩選、編輯與軟刪必填原因＋audit、還原、重跑、CSV 匯出、CSV 匯入 | U17、U18、U19、U20、U21、U22、U23 | U19／U20 的 seed 實測、U22 乾跑測試、U23 預覽五項、U21 CSV 測試 |
+| 5 `/admin/settings` admin only 與 `/admin/audit` | U24、U25 | U24（hr 403、三值驗證）、U25（篩選與展開） |
+| 6 單元測試：每條拒絕理由各一案例；跨版本昨日計畫案例 | U11、U10、U27 | `forms-publish.test.ts` 對照表測試、`forms-resolve.test.ts:239`＋新案例 |
+| 7 e2e：HR 建新人→新人登入→草稿新增一題並發布→今日日誌出現→/admin/data 修一筆→看到 audit | U28 | CI `e2e` job `admin.spec.ts` 綠（連跑兩次） |
+| 8 RUNBOOK：如何安全地改題目 | U29 | RUNBOOK 10.3；HR 照做一遍 |
+
+#### 8.4.3 建議執行順序
+
+| 層 | 任務 | 目的 |
+|---|---|---|
+| (1) 地基 | U01、U02、U03、U04、U05 | 稽核 helper、後台版面、shadcn 元件、查詢層與 RPC 型別；五者互不依賴可同日完成 |
+| (2) 名單、部門、稽核頁、遺留 | U06 → U07 → U26 → U08、U25 | 最早讓 HR 自理的功能；U07 完成即可取代 RUNBOOK 第 5 章的建帳號路 A／B；U26 排在 U08 之前（停用才不會讓指標跳動，Q2）；U25 放這層是因為 C-3 第 1 步就要看 `/admin/audit` |
+| (3) 表單 | U09、U10、U11 → U12 → U13 → U14 → U15 ★ | 版本列表與建草稿、差異純函式、測試對照表 → 編輯器兩段 → 預覽與發布對話框 → RPC 與發布。U15 推上分支後 C-3 Phase 2 前三步可走 |
+| (4) 規則 | U16 | 依賴 (1) 與 active 版本，不依賴編輯器；可與 (3) 平行 |
+| (5) 資料 | U17 → U18 → U19、U20 → U21 → U22 → U23 | 列表與抽屜 → 重跑純函式 → 編輯／軟刪還原 → 匯出 → 匯入兩段 |
+| (6) 設定 | U24 | 只依賴 (1)；C-3 第五步 |
+| (7) e2e | U27 → U28 | 需要 (2)(3)(5) 的頁面都在 |
+| (8) RUNBOOK | U29 | 需要全部功能定案；HR 照 10.3 實際操作 |
+| (9) 總驗收 | U30 | §13＋C-3 Phase 2 五步＋PR |
+
+#### 8.4.4 可平行的分支
+
+U01／U02／U03／U04／U05 五者互不依賴；U06 與 U07 只共用 U04；U10、U11 與 U09 互不依賴；U16 與整個 (3) 層平行；U24、U25 與 (3)(5) 平行；U26 只碰 Phase 1 檔案與一個索引 migration，可與 (1) 平行，但須在 U08 前合入；U21 與 U19／U20 平行（都只依賴 U17／U18）。DAG 無環。
+
+#### 8.4.5 風險與對策（編號接續 Phase 1 的 K1–K9）
+
+| # | 風險 | 觸發訊號 | 對策 |
+|---|---|---|---|
+| K10 | **表單編輯器變成無底洞**（C-4 第一列）：HR 在 Phase 2 期間提出更多題型、跳頁、分區、多欄佈局、題目複製 | HR 提出 §6 以外的需求 | 題型固定六種、條件四種運算子（Prompt 2 Forbidden）；編輯器只做 §9 字面列出的功能（拖曳排序、抽屜、預覽、發布）；新需求記進 Phase 4 清單，不在 Phase 2 做；U13 的抽屜欄位就是 §6 Question 的欄位，一個不多 |
+| K11 | **規則參數與選項脫鉤**（C-4 第二列）：HR 改了「完成」「有，尚未回報」的字，預警靜默失效 | 發布時或 `/admin/rules` 儲存時被驗證擋下 | 這正是驗證存在的目的，不放寬（Prompt 2 Stop：要放寬先問）；發布與規則兩個方向共用同一份 `validatePublish` 錯誤字串（B07）；RUNBOOK 10.3／10.4 教 HR「先改選項再改參數」的順序 |
+| K12 | **時程落差**：誠實估 92h，C-2 排一週（15–20h） | 同 K1 | 8.0 建議驗收拆兩段（U15 切片先驗）；順序設計成任何時點中止都留下可用的名單管理與可測的純函式 |
+| K13 | **發布的原子性靠 DB function**：本容器無 Docker 測不了 plpgsql；RPC 型別手寫 | `db` job 失敗、`.rpc()` typecheck 失敗 | U15 驗收要求 CI `db` job 加 `pg_proc` 檢查與 psql 實測；`pnpm db:types` 在 CI 產生後 diff（B24）；RPC 內容只做狀態切換與一筆 audit，不放業務驗證（驗證在 TS 可測） |
+| K14 | **停用帳號的 session 無法立即失效**：`auth.admin.signOut` 收 JWT 不收 user id | 停用後對方仍能操作到下一次請求 | `requireRole` 的 `status==='left'` 分支在下一次請求即擋（D-13）；`ban_duration` 封鎖 refresh，且 `middleware.ts` 每次請求 `getUser()`，被 ban 的帳號應在下一次請求就被 GoTrue 拒絕（未實測，U08 在 CI 堆疊驗證後記 DECISIONS）；`disabled-account.spec` 既有 |
+| K15 | **e2e 發布 v2 污染同一堆疊**：`flow.spec` 遇到新題目、`--verify` 的 invariant 失敗 | 本機重跑 e2e 失敗 | B23／B26：`admin.spec` `afterAll` 還原版本與帳號；新題 `required=false`；CI 每次空庫 |
+| K16 | **匯入資料與 Sheet 過渡版口徑不合**：Sheet 的日期格式、選項文字（全半形逗號）、缺 `submitted_at` | 乾跑錯誤列很多；匯入後預警數與 Sheet 對不上 | 乾跑先看再寫（前 5 列預覽、錯誤列清單）；比對 trim 後精確相等（A06）；RUNBOOK 10.5 規定 Sheet 端先把選項文字統一；C-2 週 3 雙軌核對就是為此 |
+| K17 | **稽核與主要寫入非同交易**（除發布）：主要寫入成功、audit 失敗 | Server Action 回錯但資料已變 | B12：audit 失敗 throw 讓使用者看到錯誤並重試；`/admin/audit` 可對照；Phase 3 若要嚴格再 RPC 化 |
+| K18 | **後台 client 元件誤 import `lib/db`** | build 失敗或 `secrets-boundary` 紅 | 既有靜態測試擋；B13 規定資料一律由 page 以 props 傳入 |
+
+### 8.5 資料層變更
+
+#### 8.5.1 新 migration（兩個，都不動欄位）
+
+| 檔名 | 內容 | 不做 |
+|---|---|---|
+| `supabase/migrations/<YYYYMMDDHHmmss>_rpc_publish_form_version.sql` | `create or replace function public.publish_form_version(p_version_id uuid, p_actor_id uuid, p_change_note text) returns uuid language plpgsql`：依 B03 在單一交易內完成狀態切換、`active_version_id` 更新與一筆 `audit_log`；`revoke all on function public.publish_form_version(uuid, uuid, text) from public, anon, authenticated`（含 `public`，B03） | **不加表、不加欄位、不刪欄位**；不改既有十個 migration；`notification_log` 仍 Phase 3 |
+| `supabase/migrations/<YYYYMMDDHHmmss>_manager_response_unique_idx.sql`（U26） | `create unique index submissions_one_response_idx on public.submissions (template_key, user_id, target_submission_id) where template_key = 'manager_response' and deleted_at is null`——D-35 (3) 承諾的回應自然鍵；只加索引 | 不動既有列（seed 的兩筆回應不衝突）；上 staging 前先查是否已有重複列（D-35 (3) 的 `console.warn` 情境），有則先在 `/admin/data` 軟刪 |
+
+`supabase db reset` 從空庫到最新的 CI `db` job 加一條檢查：`select count(*) from pg_proc where proname='publish_form_version'` = 1，且 `has_function_privilege(r, 'public.publish_form_version(uuid,uuid,text)', 'execute')` 對 `anon`、`authenticated`、`public` 皆 false（缺 `revoke … from public` 時 anon 會因 PUBLIC 的預設授權而為 true，本機 PG16 實測）；`pg_indexes` 有 `submissions_one_response_idx`。
+
+#### 8.5.2 `lib/db` 新增函式清單
+
+| 檔案 | 新增 | 備註 |
+|---|---|---|
+| `lib/db/audit.ts`（新） | `writeAudit()`、`AUDIT_ACTIONS`、`auditActionLabel()` | B12；`server-only` |
+| `lib/db/queries/audit.ts`（新） | `listAudit()` | B16 |
+| `lib/db/queries/profiles.ts` | `insertProfile()`、`updateProfile()`、`listProfilesForAdmin()` | 停用／啟用走 `updateProfile({ status })`；Auth 端呼叫在 Server Action（`auth.admin.*` 只經 `getAdminClient()`） |
+| `lib/db/queries/departments.ts` | `insertDepartment()`、`updateDepartment()`、`deleteDepartment()` | 23503 → `DEPARTMENT_HAS_MEMBERS` |
+| `lib/db/queries/forms.ts` | `listTemplates()`、`listVersions()`、`getDraft()`、`createDraft()`、`saveDraft()`、`publishVersion()`（RPC） | `getActiveVersion()`／`getVersionById()` 不動 |
+| `lib/db/queries/submissions.ts` | `listSubmissionsForAdmin()`、`getSubmissionById()`、`updateSubmissionAnswers()`、`softDeleteSubmission()`、`restoreSubmission()`、`getNextLog()`、`findWeeklyConflict()` | `insertDailyLog()` 既有 `source` 參數供匯入 |
+| `lib/db/queries/alerts.ts` | `closeOpenAlerts()` | 原因 `'submission_deleted' \| 'left'`；`applyAlertChanges()` 不動 |
+| `lib/db/queries/settings.ts` | `updateSettings()` | 只更新 `SETTING_KEYS` 四個既有 key |
+| `lib/db/queries/milestones.ts` | `upsertMilestones()` | `on conflict (user_id, kind)`，PLAN 4.7 |
+| `lib/db/csv.ts` | `buildAdminCsvRows()` | `newcomerCsv()` 不動 |
+| `lib/db/types.ts` | `Functions.publish_form_version` | B24 |
+
+其他新純函式（非 `lib/db`）：`lib/forms/diff.ts`（`diffQuestionVersions`、`summarizeDiff`）、`lib/forms/import.ts`（`prepareImport`）、`lib/forms/submit.ts`（`prepareLogRerun`）、`lib/forms/validate.ts`（`slotOptionsFor`、`showIfTargetsFor`、`validateRulesAgainstVersion`）、`lib/auth/roster.ts`（`USERNAME_PATTERN`、`parseUserInput`、`generateTemporaryPassword`）、`lib/time/milestones.ts`（`pendingMilestoneUpdates`）、`lib/time/index.ts`（`compareInstant`）。
+
+#### 8.5.3 seed
+
+不變（B23）：`supabase/seed/**` 零改動；`EXPECTED_ROW_COUNTS` 不變；`--verify` 仍要求 `active_version_id = v1`（CI 空庫成立；staging 發布 v2 後不再跑 `--verify`，RUNBOOK 10.3 註明）。
+
+### 8.6 新依賴（待核准）
+
+> 狀態：等「核准 Phase 2」後才安裝。表外套件一律先問（§0）。參考版本為 2026-09-08 以 `pnpm view <pkg> version` 查得【實際】；安裝後回填「實際安裝」欄。
+
+#### 8.6.1 dependencies（執行期）
+
+| 套件 | 參考版本 | 用途 | 非要不可的理由 | 實際安裝 |
+|---|---|---|---|---|
+| `@dnd-kit/core` | `^6.3.1` | 草稿編輯器題目列表拖曳（U12） | §9「題目列表可拖曳排序」；PLAN 5.7 已預告；提供 PointerSensor＋KeyboardSensor，觸控與鍵盤皆可，無額外 peer 依賴（React 19 相容） | — |
+| `@dnd-kit/sortable` | `^10.0.0` | 垂直排序預設策略與 `useSortable` | 同上；自己寫排序要處理 transform／collision，非 §0 精神 | — |
+| `@dnd-kit/utilities` | `^3.2.2` | `CSS.Transform.toString` | `@dnd-kit/sortable` 範例必用的小工具，避免手寫 transform 字串 | — |
+| `papaparse` | `^5.7.0` | CSV 匯入解析（瀏覽器端，U22） | §9「CSV 匯入」；RFC 4180 引號內換行、BOM、`header:true` 皆內建；Phase 1 手寫的 `toCsv` 只有輸出方向（5.2） | — |
+
+#### 8.6.2 devDependencies
+
+| 套件 | 參考版本 | 用途 | 非要不可的理由 | 實際安裝 |
+|---|---|---|---|---|
+| `@types/papaparse` | `^5.5.2` | papaparse 型別 | `papaparse` 無內建型別；`typecheck`（§13）要過 | — |
+
+#### 8.6.3 shadcn 元件（CLI 產生或 D-10 方式取原檔，非 npm 依賴）
+
+| 元件 | 用在 | 帶入套件 |
+|---|---|---|
+| `dialog` | 發布確認（U14）、刪除確認（U06、U20）、臨時密碼顯示（U07、U08） | `radix-ui`（已在 5.3） |
+| `select` | 角色／部門／主管／狀態（U07、U08）、範本與篩選（U17）、slot／show_if／type（U13）、規則參數（U16）、匯入對映（U22） | `radix-ui` |
+| `switch` | required／disabled（U13）、規則開關（U16） | `radix-ui` |
+| `tabs` | `/admin/forms/[key]` 版本／草稿（U09）、`/admin/data` 列表／匯入（U17） | `radix-ui` |
+| `checkbox` | 篩選「含已刪」「有預警」（U17）、`status_done` 多選（U16）、「略過錯誤列」（U23） | `radix-ui` |
+| `dropdown-menu` | 列的更多操作（U07、U17） | `radix-ui` |
+
+#### 8.6.4 明確不裝
+
+| 套件 | 理由 |
+|---|---|
+| `react-hook-form`、shadcn `form` | 5.2 不變：題目抽屜與後台表單用 `useState`＋Server Action 回 `FormActionState`（D-25），驗證在 `lib/forms`／`lib/auth/roster.ts`；後台表單欄位都是固定少量欄位 |
+| `sonner`／`toast` | 5.2 不變：成功／錯誤用頁面內 `alert`；「已儲存 hh:mm」是編輯器內文字 |
+| `jsdom`、`@testing-library/react` | 5.7 不變：純呈現元件以 `renderToStaticMarkup` 測，互動由 Playwright 測 |
+| `@line/bot-sdk`、`@anthropic-ai/sdk` | Phase 3 |
+| 任何 CSV 產生套件 | 匯出沿用 `lib/db/csv.ts` |
+| 任何 diff 套件 | `diffQuestionVersions` 以 key 對齊的結構比較，約 80 行純函式 |
+
+### 8.7 §13 完成定義對照與 C-3 Phase 2 驗收步驟
+
+#### 8.7.1 §13 逐條（U30 回填實際證據；格式同 7.1，地點標 `[本機]`／`[CI]`／`[staging]`）
+
+| §13 條目 | Phase 2 的具體要求 | 證據來源 |
+|---|---|---|
+| lint／typecheck／unit／e2e 全綠 | CI 七個 job 全綠並綁 head sha（D-70）；unit 三 TZ；e2e 含 `admin.spec.ts` 與擴充的 `mobile.spec.ts` | `[CI]` run 編號＋sha |
+| `.env.example` 更新 | Phase 2 無新環境變數；`grep -rho "process\.env\.[A-Z_]*" app lib supabase tests middleware.ts \| sort -u` 結果與 Phase 1 相同（D-69） | `[本機]` |
+| migrations 可從空庫一路跑到最新 | 十二個檔（含 `_rpc_publish_form_version.sql` 與 `_manager_response_unique_idx.sql`）；`db` job 加 `pg_proc` 與 `pg_indexes` 檢查 | `[CI]` `db` job；`[本機]` local-pg 逐檔 psql |
+| seed 可重跑（idempotent） | `pnpm db:seed --verify` 兩次一致，筆數同 Phase 1（e2e 已還原，B23／B26） | `[CI]` `e2e` job 步驟 |
+| DECISIONS 有更新 | U29 清單至少 13 列，編號接 D-75 之後連續 | `[本機]` `grep -o "^\| D-[0-9]*"` |
+| PR 描述含測試方式與截圖（手機寬度） | 後台四頁 375px 截圖（`mobile.spec`）＋桌機編輯器與匯入預覽截圖各一（人工）＋staging URL | `[CI]` artifact；`[staging]` |
+
+#### 8.7.2 C-3 Phase 2 五步（Banson 或 HR 親自做，staging，20 分鐘）
+
+前置：staging 已 `db push` 到含 RPC 的最新、`pnpm db:seed --anchor <昨天>`（讓洪湘庭 9/3 的 R2 落在「昨天 17:06」，步驟 5 才看得到變化；RUNBOOK 第 2 章既有做法）。
+
+| 步 | 操作 | 應看到 | 對應任務 |
+|---|---|---|---|
+| 1 | 以 `hr` 登入 → `/hr` 導覽「後台」→ `/admin/users` → 新增：帳號 `trial01`、顯示名稱「試用新人」、角色 newcomer、部門 工務、主管 工務主任、到職日 今天 | 成功頁顯示一次性臨時密碼；列表多一列；`/admin/audit` 最上列 `user.create`；`/hr` 新人總覽多一人、節點到期清單在 30 天後出現 D30 | U07、U25 |
+| 2 | `/admin/forms` → 新人每日日誌 → 建立草稿 → 新增一題：key `talked_to_manager`、標籤「今天有沒有跟主管講到話」、單選［有,沒有］、必填 → 拖到「今日學到一件事」之後 → 右側預覽出現該題 → 發布：差異摘要「新增 1 題」、填 change_note「加主管互動題」 | 版本列表：v2 published、v1 archived；`/admin/audit` 多 `form.draft_create`、若干 `form.draft_saved`、`form.publish` | U09、U12–U15 |
+| 3 | 以 `trial01`＋臨時密碼登入 → 被導改密碼 → 改完落 `/me/today` | 今日日誌第二區塊出現「今天有沒有跟主管講到話」且為必填；`/me/history` 為空（新帳號）。另以 `hung_hsiangting` 登入看 `/me/history`：昨天（anchor）與前天的日誌仍以 v1 的標籤顯示 | U15、Target 2 |
+| 4 | 以 `hr` 登入 → `/admin/data` → 篩「嚴雅齡」→ 打開昨天（anchor）那筆 → 編輯：項目一未完成原因改「已請 Patty 給對照表」、原因「驗收測試」→ 儲存 | 抽屜顯示新值；預警 R1 仍 responded 且 detail 不變（已回應的預警不重算，A10；抽屜有提示）；`/admin/audit` 最上列 `submission.edit`，展開 before／after 看得到兩個值與原因「驗收測試」 | U19、U25 |
+| 5 | 以 `banson`（admin）登入 → 先看 `/hr`：待處理預警 1 筆（洪湘庭 R2，建立於昨天 17:06），**逾時 0**（現在距建立 < 24h；請在今天 17:06 前做）→ `/admin/settings` 把回應門檻改 12 → 回 `/hr` | 待處理預警仍 1 筆但標「逾時」、HR 介入清單「逾時未回」出現洪湘庭；一行摘要「待主管回應：1」不變（摘要不看逾時）；改回 24 → 逾時 0；`/admin/audit` 兩列 `settings.update`（before 24／after 12、before 12／after 24） | U24、A1（D-17 嚴格 `>`） |
+
+「逾時數變化」的驗證前提：R2 的 `created_at`＝昨天 17:06（anchor 平移後），檢查時刻在今天 05:06–17:06 之間，年齡介於 12h 與 24h，門檻 24 → 未逾時、門檻 12 → 逾時。若錯過時段，改用 `--anchor` 平移到前天再算（年齡 > 24h 兩個門檻都逾時，看不到變化，不可用）。嚴雅齡 R1（已回應、16.1h）在門檻 12 下變 `responded_late`，只影響 `alertRates().late`，頁面不顯示（D-32），不作為驗收依據。
+
+補充驗收（不在 C-3 但屬 Target）：以 `mgr_construction` 開 `/admin` → 403；以 `hr` 開 `/admin/rules`、`/admin/settings` → 403；`/admin/departments` 刪「工務」→ 「仍有成員，請先移轉」；`/admin/users` 停用 `trial01` → 以其登入 → 「帳號已停用」→ 啟用 → 可登入；第 5 步之後（否則第 5 步沒有預警可看）：`/admin/data` 把洪湘庭昨天那筆 `blocker` 改「沒有」（原因「驗收測試」）→ `/hr` 待處理預警 0、R2 closed；改回「有，尚未回報」→ R2 reopen、建立時間仍為昨天 17:06（D-62）；以 `hr` 對 `banson` 按「停用」或「重設密碼」→ 拒絕（B27）。
+
+### 8.8 貼 Prompt 2 的建議
+
+Prompt 2 原文（kit.md）**不改一字**。貼上時在 Objective 後加一句：
+
+> 並依 docs/PLAN.md 第 8 章（8.3 的問題答案與假設 B01–B27、8.4 任務 U01–U30、8.5 的兩個 migration、8.6 依賴白名單）執行；任務順序依 8.4.3。
+
+Phase 2 開工前的前置清單（都不是 Phase 2 任務、不計估時）：
+
+| # | 前置 | 由誰 | 依據 |
+|---|---|---|---|
+| 1 | 合併 PR #1（人審） | Banson | §0「功能分支 → PR → 等人審」；Prompt 2 Starting State「已合併到 main」 |
+| 2 | 建立 Supabase staging 與 Vercel 專案，執行 T09（`db push`、`db:seed`、Auth 設定、手機實測），結案 B1／B6／B7／B8 | Banson（依 7.3 清單）＋工程 | 第 7 節 7.2／7.3；Starting State「在 staging 運作」「資料庫有 seed」 |
+| 3 | C-3 Phase 1 五步驗收通過 | Banson 或 HR | kit.md「Phase 1 驗收通過（C-3 的清單）再貼 Prompt 2」 |
+| 4 | 回覆 8.0：「核准 Phase 2」＋Q1–Q4（不答＝採建議）＋對 B01–B27 的異議（若有） | Banson | 本章 8.0 回覆格式 |
+| 5 | （可選）確認 D-12「seed 不寫 audit」是否維持 | Banson | D-12 標「待 Banson 確認」；本章假設維持（B17 (e)） |
+
+回報格式沿用附錄 B：每完成 U01–U30 任一項或 Target 1–8 任一項輸出三行；全部完成後輸出檔案變更總表與測試結果摘要（lint／typecheck／unit 三 TZ／db／e2e）、staging URL、C-3 Phase 2 五步的結果。
